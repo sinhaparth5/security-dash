@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Fortify\Fortify;
+use Laravel\Passkeys\Passkeys;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -15,7 +18,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Sign-in is GitHub only, so none of Fortify's password, 2FA or passkey routes may exist.
+        Fortify::ignoreRoutes();
+        Passkeys::ignoreRoutes();
     }
 
     /**
@@ -23,7 +28,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->ensureProductionUsesPostgres();
         $this->configureDefaults();
+    }
+
+    /**
+     * SQLite is for local development only; refuse to boot production on anything else.
+     */
+    protected function ensureProductionUsesPostgres(): void
+    {
+        if ($this->app->isProduction() && config('database.default') !== 'pgsql') {
+            throw new RuntimeException('Production must run on PostgreSQL: set DB_CONNECTION=pgsql.');
+        }
     }
 
     /**

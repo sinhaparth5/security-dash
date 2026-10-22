@@ -35,7 +35,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * Grade every dependency, then roll the worst grade up to the service:
      * Red = known advisory on the running version, Yellow = newer release available, Green = neither.
      * Images keep the grade their last CI scan gave them, but still count towards the service.
-     * Verified users are mailed once when the service first turns Red, not on every Red evaluation.
+     * Every user is mailed once when the service first turns Red, not on every Red evaluation.
      */
     public function handle(Osv $osv, Releases $releases): void
     {
@@ -78,7 +78,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         });
 
         if ($previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red) {
-            Notification::send(User::whereNotNull('email_verified_at')->get(), new ServiceTurnedRed($this->service));
+            Notification::send(User::all(), new ServiceTurnedRed($this->service));
         }
     }
 }

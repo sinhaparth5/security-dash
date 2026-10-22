@@ -28,6 +28,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'github' => [
+        'client_id' => env('GITHUB_CLIENT_ID'),
+        'client_secret' => env('GITHUB_CLIENT_SECRET'),
+        'redirect' => '/auth/github/callback',
+        // Comma-separated GitHub usernames allowed to sign in to the dashboard.
+        'allowed_logins' => array_values(array_filter(array_map('trim', explode(',', (string) env('GITHUB_ALLOWED_LOGINS', 'sinhaparth5'))))),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

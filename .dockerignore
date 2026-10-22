@@ -1,0 +1,55 @@
+# VCS, CI and editor/agent tooling
+.git
+.github
+.idea
+.vscode
+.fleet
+.zed
+.agents
+.claude
+.codex
+.cursor
+.junie
+.mcp.json
+AGENTS.md
+CLAUDE.md
+boost.json
+
+# Secrets never go into the image; env is supplied at runtime
+.env
+.env.*
+auth.json
+
+# Rebuilt inside the image
+node_modules
+vendor
+public/build
+public/hot
+public/storage
+bootstrap/cache/*.php
+bootstrap/ssr
+resources/js/actions
+resources/js/routes
+resources/js/wayfinder
+
+# Local runtime state
+database/*.sqlite*
+storage/app/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/testing/*
+storage/framework/views/*
+storage/logs/*
+storage/pail
+
+# Not needed at runtime
+tests
+.phpunit.cache
+.phpunit.result.cache
+phpunit.xml
+phpstan.neon
+*.log
+
+Dockerfile
+compose.yaml
+.dockerignore
