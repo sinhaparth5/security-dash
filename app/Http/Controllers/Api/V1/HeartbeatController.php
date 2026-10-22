@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\ServiceStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\HeartbeatRequest;
+use App\Jobs\EvaluateService;
 use App\Models\Service;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,8 @@ class HeartbeatController extends Controller
             $service->dependencies()->whereKey($existing->modelKeys())->delete();
             $service->update(['last_ping_at' => now()]);
         });
+
+        EvaluateService::dispatch($service);
 
         return response()->noContent();
     }

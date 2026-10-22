@@ -2,11 +2,17 @@
 
 use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
+use App\Jobs\EvaluateService;
 use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\Service;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
+
+beforeEach(function () {
+    Queue::fake();
+});
 
 test('heartbeat without a token returns 401', function () {
     $this->postJson(route('api.v1.heartbeat'), ['dependencies' => []])
@@ -105,4 +111,22 @@ test('heartbeat removes dependencies missing from the manifest without touching 
 
     $this->assertModelMissing($removed);
     $this->assertModelExists($otherServicesDependency);
+});
+
+test('heartbeat queues an evaluation of the reporting service', function () {
+    $service = Service::factory()->create();
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), ['dependencies' => []])
+        ->assertNoContent();
+
+    Queue::assertPushed(EvaluateService::class, fn (EvaluateService $job) => $job->service->is($service));
+});
+
+test('rejected heartbeat does not queue an evaluation', function () {
+    Sanctum::actingAs(Service::factory()->create());
+
+    $this->postJson(route('api.v1.heartbeat'), [])->assertUnprocessable();
+
+    Queue::assertNothingPushed();
 });
