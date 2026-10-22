@@ -34,12 +34,14 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
     /**
      * Grade every dependency, then roll the worst grade up to the service:
      * Red = known advisory on the running version, Yellow = newer release available, Green = neither.
+     * Images keep the grade their last CI scan gave them, but still count towards the service.
      * Verified users are mailed once when the service first turns Red, not on every Red evaluation.
      */
     public function handle(Osv $osv, Releases $releases): void
     {
         $previousStatus = $this->service->fresh()->status;
-        $dependencies = $this->service->dependencies()->get();
+        [$scannedImages, $dependencies] = $this->service->dependencies()->get()
+            ->partition(fn (Dependency $dependency) => $dependency->ecosystem === Ecosystem::Image);
         $osvAdvisories = $osv->advisories($dependencies);
 
         $evaluations = $dependencies->map(function (Dependency $dependency) use ($osvAdvisories, $releases) {
@@ -62,7 +64,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             return compact('dependency', 'advisories', 'latestVersion', 'status');
         });
 
-        DB::transaction(function () use ($evaluations) {
+        DB::transaction(function () use ($evaluations, $scannedImages) {
             foreach ($evaluations as $evaluation) {
                 $evaluation['dependency']->advisories()->delete();
                 $evaluation['dependency']->advisories()->createMany($evaluation['advisories']);
@@ -72,7 +74,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 ]);
             }
 
-            $this->service->update(['status' => ServiceStatus::worst($evaluations->pluck('status'))]);
+            $this->service->update(['status' => ServiceStatus::worst($evaluations->pluck('status')->merge($scannedImages->pluck('status')))]);
         });
 
         if ($previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red) {

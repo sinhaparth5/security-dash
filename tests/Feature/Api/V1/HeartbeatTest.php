@@ -130,3 +130,22 @@ test('rejected heartbeat does not queue an evaluation', function () {
 
     Queue::assertNothingPushed();
 });
+
+test('heartbeat keeps images reported by CI scans', function () {
+    $service = Service::factory()->create();
+    $image = Dependency::factory()->for($service)->vulnerable()->create(['ecosystem' => Ecosystem::Image]);
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), ['dependencies' => []])
+        ->assertNoContent();
+
+    $this->assertModelExists($image);
+});
+
+test('heartbeat cannot report images', function () {
+    Sanctum::actingAs(Service::factory()->create());
+
+    $this->postJson(route('api.v1.heartbeat'), [
+        'dependencies' => [['ecosystem' => 'image', 'name' => 'alpine', 'version' => '3.20']],
+    ])->assertJsonValidationErrors('dependencies.0.ecosystem');
+});

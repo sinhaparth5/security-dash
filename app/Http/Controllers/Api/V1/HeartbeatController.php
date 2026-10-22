@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\HeartbeatRequest;
@@ -17,6 +18,7 @@ class HeartbeatController extends Controller
      *
      * A changed version resets that dependency to Unknown and drops its
      * advisories, since they were evaluated against the old version.
+     * Image rows belong to CI scans and are left alone.
      */
     public function __invoke(HeartbeatRequest $request): Response
     {
@@ -29,7 +31,7 @@ class HeartbeatController extends Controller
             ->all();
 
         DB::transaction(function () use ($service, $reported) {
-            $existing = $service->dependencies()->get()
+            $existing = $service->dependencies()->whereNot('ecosystem', Ecosystem::Image)->get()
                 ->keyBy(fn ($dependency) => $dependency->ecosystem->value.'|'.$dependency->name);
 
             // ponytail: one query per changed row, batch with upsert if manifests reach thousands

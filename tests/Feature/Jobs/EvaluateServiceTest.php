@@ -86,7 +86,7 @@ test('advisories fixed since the last evaluation are removed', function () {
 
 test('a dependency no source can evaluate stays unknown and does not mask the service status', function () {
     $service = Service::factory()->create();
-    $image = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Image, 'name' => 'alpine', 'version' => '3.20']);
+    $image = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Image, 'name' => 'alpine', 'version' => '3.20', 'status' => ServiceStatus::Unknown]);
     Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.21']);
     fakeUpstream([[]]);
 
@@ -94,6 +94,20 @@ test('a dependency no source can evaluate stays unknown and does not mask the se
 
     expect($image->fresh()->status)->toBe(ServiceStatus::Unknown);
     expect($service->fresh()->status)->toBe(ServiceStatus::Green);
+});
+
+test('a scanned image keeps its advisories and its red grade turns the service red', function () {
+    $service = Service::factory()->create(['status' => ServiceStatus::Green]);
+    $image = Dependency::factory()->for($service)->vulnerable()->create(['ecosystem' => Ecosystem::Image, 'name' => 'alpine', 'version' => '3.20']);
+    $finding = Advisory::factory()->for($image)->create();
+    Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.21']);
+    fakeUpstream([[]]);
+
+    EvaluateService::dispatchSync($service);
+
+    $this->assertModelExists($finding);
+    expect($image->fresh()->status)->toBe(ServiceStatus::Red);
+    expect($service->fresh()->status)->toBe(ServiceStatus::Red);
 });
 
 test('a service with nothing evaluable is unknown', function () {
