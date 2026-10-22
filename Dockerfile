@@ -44,7 +44,10 @@ ARG UID=10001
 ARG GID=10001
 
 # Code is owned by root and read-only to the app; only runtime caches are writable by it.
-RUN groupadd --gid "${GID}" laravel \
+# The binary ships with cap_net_bind_service for ports < 1024; we use 8080, and the file
+# capability would stop it from starting under cap_drop: ALL + no-new-privileges.
+RUN setcap -r /usr/local/bin/frankenphp \
+    && groupadd --gid "${GID}" laravel \
     && useradd --uid "${UID}" --gid "${GID}" --no-create-home --shell /usr/sbin/nologin laravel
 
 COPY --from=build --chown=root:root /app /app
