@@ -6,12 +6,15 @@ use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Dependency;
 use App\Models\Service;
+use App\Models\User;
+use App\Notifications\ServiceTurnedRed;
 use App\Upstream\Osv;
 use App\Upstream\Releases;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
@@ -31,9 +34,11 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
     /**
      * Grade every dependency, then roll the worst grade up to the service:
      * Red = known advisory on the running version, Yellow = newer release available, Green = neither.
+     * Verified users are mailed once when the service first turns Red, not on every Red evaluation.
      */
     public function handle(Osv $osv, Releases $releases): void
     {
+        $previousStatus = $this->service->fresh()->status;
         $dependencies = $this->service->dependencies()->get();
         $osvAdvisories = $osv->advisories($dependencies);
 
@@ -69,5 +74,9 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
             $this->service->update(['status' => ServiceStatus::worst($evaluations->pluck('status'))]);
         });
+
+        if ($previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red) {
+            Notification::send(User::whereNotNull('email_verified_at')->get(), new ServiceTurnedRed($this->service));
+        }
     }
 }

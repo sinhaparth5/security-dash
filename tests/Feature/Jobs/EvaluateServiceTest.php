@@ -6,9 +6,12 @@ use App\Jobs\EvaluateService;
 use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\Service;
+use App\Models\User;
+use App\Notifications\ServiceTurnedRed;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -122,4 +125,30 @@ test('the hourly schedule queues an evaluation for every service', function () {
 
     Queue::assertPushed(EvaluateService::class, 2);
     $services->each(fn (Service $service) => Queue::assertPushed(EvaluateService::class, fn (EvaluateService $job) => $job->service->is($service)));
+});
+
+test('a service turning red mails every verified user once', function () {
+    Notification::fake();
+    $verified = User::factory()->create();
+    $unverified = User::factory()->unverified()->create();
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->update(['status' => ServiceStatus::Green]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    Notification::assertSentTo($verified, ServiceTurnedRed::class, fn (ServiceTurnedRed $notification) => $notification->service->is($dependency->service));
+    Notification::assertNotSentTo($unverified, ServiceTurnedRed::class);
+});
+
+test('a service that was already red does not mail again', function () {
+    Notification::fake();
+    User::factory()->create();
+    $dependency = Dependency::factory()->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->update(['status' => ServiceStatus::Red]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    Notification::assertNothingSent();
 });
