@@ -28,7 +28,8 @@ class SecurityHeaders
                 "default-src 'self'",
                 "script-src 'self' 'nonce-{$nonce}'",
                 "style-src 'self' 'unsafe-inline'",
-                "img-src 'self' data:",
+                // News articles show images hosted by their publishers.
+                "img-src 'self' data: https:",
                 "font-src 'self' data:",
                 "connect-src 'self'",
                 "object-src 'none'",

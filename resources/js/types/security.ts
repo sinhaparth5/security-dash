@@ -132,3 +132,16 @@ export type FleetPackage = {
         services: { id: number; name: string; environment: string }[];
     }[];
 };
+
+export type NewsArticle = {
+    id: number;
+    url: string;
+    source: string;
+    title: string;
+    summary: string | null;
+    image_url: string | null;
+    published_at: string;
+    /** Jev: 0 background, 1 worth knowing, 2 important, 3 act now. */
+    importance: number | null;
+    importance_confidence: number | null;
+};

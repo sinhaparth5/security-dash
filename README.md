@@ -51,6 +51,7 @@ A service takes the grade of its worst dependency.
 | Fixing         | Copyable upgrade commands, one-click upgrade pull requests, or PRs opened automatically                                                      |
 | Supply chain   | `MAL-` malware advisories raised above everything else, and warnings for npm names one typo away from a popular package                      |
 | Fleet view     | A **Packages** page showing which services run each package, and on which versions                                                           |
+| News           | Security news from five public feeds, refreshed hourly, with Jev ranking what matters for your stack                                         |
 | Alerts         | Email when a service turns red, the same alert in Slack or Discord, and a weekly digest                                                      |
 | Sharing        | A README status badge per service                                                                                                            |
 | Accountability | Risk acceptances with a reason and re-check date, and an audit log of every sign-in, token, allowlist, risk, repository, PR and badge change |
@@ -74,6 +75,8 @@ CI (Trivy) ─scan──────▶ POST /api/v1/telemetry/image-scan ─┤
                                   database ──▶ dashboard (polls every minute)
                                            ├─▶ email, Slack / Discord alerts
                                            └─▶ README badge (/badge/<token>.svg)
+
+FetchSecurityNews job (hourly) ── RSS feeds → news articles ── TypeSafe Jev (optional) → importance
 ```
 
 ### What gets checked
@@ -90,7 +93,7 @@ Comparing runtimes within their release line means a healthy LTS install isn't f
 
 ### When upstreams fail
 
-Upstream responses are cached. If an upstream is unavailable, the evaluation fails and retries, and the last grade stays in place, so an outage is never read as "no advisories". KEV, EPSS, AI triage, PR status and chat alerts are the exception: they only add information, so an outage there hides it until the next evaluation and never blocks grading.
+Upstream responses are cached. If an upstream is unavailable, the evaluation fails and retries, and the last grade stays in place, so an outage is never read as "no advisories". KEV, EPSS, AI triage, PR status, chat alerts and news feeds are the exception: they only add information, so an outage there hides it until the next evaluation and never blocks grading.
 
 If no evaluation has finished for two hours, or queued jobs have failed, the dashboard shows a warning. Check the queue worker and the scheduler.
 
@@ -214,6 +217,20 @@ The dashboard shows how many advisories each service has overdue.
 
 A package OSV reports as malware (`MAL-` advisories) is flagged on the dashboard and the service page, and triggers an alert the first time it appears, even if the service was already red. npm names one typo or one swapped letter pair away from a popular package (`expres`, `lodahs`) get a **Looks like …** warning. The warning is a hint and never changes a grade.
 
+### News
+
+**News** in the sidebar collects security news from [The Hacker News](https://thehackernews.com), [BleepingComputer](https://www.bleepingcomputer.com), [SecurityWeek](https://www.securityweek.com), [Krebs on Security](https://krebsonsecurity.com) and [Dark Reading](https://www.darkreading.com). The scheduler reads their public RSS feeds every hour, so no API key is needed. Each article shows its image (or a placeholder when the feed has none), title, a short summary, the source and when it was published, and links to the full story. Articles from the last 14 days are shown, and anything older than 30 days is deleted.
+
+With `TYPESAFE_API_KEY` set, Jev scores each new article from 0 (background) to 3 (act now) for the software your services run. Patchwatch sends it the article's source, title and summary, plus the fleet's ecosystems, runtimes and 100 most shared packages. The page then groups articles:
+
+| Section   | Articles                                                          |
+| --------- | ----------------------------------------------------------------- |
+| Featured  | The three highest scored articles with a score of 1.5 or more     |
+| Important | The remaining articles with a score of 1.5 or more, highest first |
+| Latest    | Everything else, newest first                                     |
+
+Without a key, every article is listed under **All news**, newest first. A feed that is down is skipped until the next hour, and articles Jev couldn't score are asked about again on the next run.
+
 ### Packages
 
 **Packages** in the sidebar lists every package across the fleet, most widely used first, grouped by version with the services running each one. Search it when a new advisory lands to see who is affected.
@@ -295,18 +312,18 @@ The URL is the only secret: anyone who has it can see the service's status and n
 
 Settings live in `.env` locally and in the server's env file in production (see [Deployment](#deployment)).
 
-| Variable                                   | Required   | Purpose                                                                          |
-| ------------------------------------------ | ---------- | -------------------------------------------------------------------------------- |
-| `APP_KEY`, `APP_URL`                       | Yes        | Laravel app key and public URL                                                   |
-| `DB_*`                                     | Yes        | SQLite locally, PostgreSQL in production                                         |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Yes        | The GitHub OAuth app used for sign-in                                            |
-| `GITHUB_ALLOWED_LOGINS`                    | Yes        | Comma-separated GitHub usernames allowed to sign in                              |
-| `MAIL_*`                                   | Production | Alert and digest email ([setup](#email-alerts)). Locally, mail goes to the log.  |
-| `SESSION_ENCRYPT`, `SESSION_SECURE_COOKIE` | Production | Set both to `true`                                                               |
-| `GITHUB_PR_TOKEN`                          | No         | [Upgrade pull requests](#upgrade-pull-requests), their status, and automatic PRs |
-| `TYPESAFE_API_KEY`, `TYPESAFE_MODEL`       | No         | [AI triage](#ai-triage-typesafe-jev) badges on advisories                        |
-| `ALERT_WEBHOOK_URL`                        | No         | [Slack or Discord alerts](#slack-and-discord-alerts) alongside the red email     |
-| `SANCTUM_TOKEN_PREFIX`                     | No         | Service token prefix, `pw_` by default (see [Security](#security))               |
+| Variable                                   | Required   | Purpose                                                                             |
+| ------------------------------------------ | ---------- | ----------------------------------------------------------------------------------- |
+| `APP_KEY`, `APP_URL`                       | Yes        | Laravel app key and public URL                                                      |
+| `DB_*`                                     | Yes        | SQLite locally, PostgreSQL in production                                            |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Yes        | The GitHub OAuth app used for sign-in                                               |
+| `GITHUB_ALLOWED_LOGINS`                    | Yes        | Comma-separated GitHub usernames allowed to sign in                                 |
+| `MAIL_*`                                   | Production | Alert and digest email ([setup](#email-alerts)). Locally, mail goes to the log.     |
+| `SESSION_ENCRYPT`, `SESSION_SECURE_COOKIE` | Production | Set both to `true`                                                                  |
+| `GITHUB_PR_TOKEN`                          | No         | [Upgrade pull requests](#upgrade-pull-requests), their status, and automatic PRs    |
+| `TYPESAFE_API_KEY`, `TYPESAFE_MODEL`       | No         | [AI triage](#ai-triage-typesafe-jev) badges on advisories and [news](#news) ranking |
+| `ALERT_WEBHOOK_URL`                        | No         | [Slack or Discord alerts](#slack-and-discord-alerts) alongside the red email        |
+| `SANCTUM_TOKEN_PREFIX`                     | No         | Service token prefix, `pw_` by default (see [Security](#security))                  |
 
 ## Deployment
 
@@ -320,7 +337,7 @@ Every push to `master` runs `.github/workflows/ci.yml`:
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `patchwatch-web`       | The app on `127.0.0.1:18092`. Put a TLS-terminating reverse proxy in front of it, and make it send `X-Forwarded-Proto`. |
 | `patchwatch-queue`     | `queue:work`: evaluations, alert emails and the weekly digest                                                           |
-| `patchwatch-scheduler` | `schedule:work`: the hourly re-evaluation and the Monday digest                                                         |
+| `patchwatch-scheduler` | `schedule:work`: the hourly re-evaluation and news fetch, and the Monday digest                                         |
 
 If the migration fails, the deploy stops and the old containers keep running. To roll back, re-run the deploy for an older commit, or `docker run` its `:<short sha>` tag.
 

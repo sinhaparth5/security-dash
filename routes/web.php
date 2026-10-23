@@ -4,6 +4,7 @@ use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\GithubLoginController;
 use App\Http\Controllers\BadgeController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PackageController;
 use App\Http\Controllers\PullRequestController;
 use App\Http\Controllers\RiskAcceptanceController;
@@ -40,6 +41,7 @@ Route::middleware('auth')->group(function () {
     Route::post('services/{service}/dependencies/{dependency}/pull-request', [PullRequestController::class, 'store'])->middleware('throttle:10,1')->scopeBindings()->name('services.dependencies.pull-request.store');
     Route::post('services/{service}/badge', [ServiceController::class, 'rotateBadge'])->middleware('throttle:10,1')->name('services.badge.rotate');
     Route::get('packages', [PackageController::class, 'index'])->name('packages.index');
+    Route::get('news', [NewsController::class, 'index'])->name('news.index');
     Route::get('audit', AuditController::class)->name('audit.index');
 });
 

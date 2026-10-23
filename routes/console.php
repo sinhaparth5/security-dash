@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\EvaluateService;
+use App\Jobs\FetchSecurityNews;
 use App\Models\Service;
 use App\Models\User;
 use App\Notifications\WeeklyDigest;
@@ -15,6 +16,10 @@ Artisan::command('inspire', function () {
 
 Schedule::call(fn () => Service::query()->each(fn (Service $service) => EvaluateService::dispatch($service)))
     ->name('evaluate-services')
+    ->hourly();
+
+Schedule::job(new FetchSecurityNews)
+    ->name('security-news')
     ->hourly();
 
 Schedule::call(fn () => Notification::send(User::all(), new WeeklyDigest))
