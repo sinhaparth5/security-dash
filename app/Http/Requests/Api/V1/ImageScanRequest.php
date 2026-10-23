@@ -16,7 +16,7 @@ class ImageScanRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user() instanceof Service;
+        return $this->user('sanctum') instanceof Service;
     }
 
     /**
@@ -37,5 +37,15 @@ class ImageScanRequest extends FormRequest
             'Results.*.Vulnerabilities.*.Severity' => ['nullable', 'string', 'max:20'],
             'Results.*.Vulnerabilities.*.Title' => ['nullable', 'string', 'max:2000'],
         ];
+    }
+
+    /**
+     * Every validated finding across all scan results.
+     *
+     * @return list<array{VulnerabilityID: string, PkgName: string, InstalledVersion?: string|null, FixedVersion?: string|null, Severity?: string|null, Title?: string|null}>
+     */
+    public function vulnerabilities(): array
+    {
+        return $this->validated('Results.*.Vulnerabilities.*', []);
     }
 }

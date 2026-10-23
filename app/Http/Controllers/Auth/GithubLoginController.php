@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\GithubProvider;
 use Laravel\Socialite\Two\InvalidStateException;
 use Symfony\Component\HttpFoundation\RedirectResponse as SymfonyRedirectResponse;
 
@@ -22,7 +23,7 @@ class GithubLoginController extends Controller
      */
     public function redirect(): SymfonyRedirectResponse
     {
-        return Socialite::driver('github')->with(['allow_signup' => 'false'])->redirect();
+        return Socialite::buildProvider(GithubProvider::class, config('services.github'))->with(['allow_signup' => 'false'])->redirect();
     }
 
     /**

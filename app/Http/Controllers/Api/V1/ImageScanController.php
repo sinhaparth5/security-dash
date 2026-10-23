@@ -25,8 +25,7 @@ class ImageScanController extends Controller
         $service = $request->user();
         [$name, $version] = $this->splitReference($request->validated('ArtifactName'));
 
-        $advisories = collect($request->validated('Results', []))
-            ->flatMap(fn (array $result) => $result['Vulnerabilities'] ?? [])
+        $advisories = collect($request->vulnerabilities())
             ->unique('VulnerabilityID')
             ->map(fn (array $vulnerability) => [
                 'osv_id' => $vulnerability['VulnerabilityID'],

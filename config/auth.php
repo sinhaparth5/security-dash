@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Service;
 use App\Models\User;
 
 return [
@@ -42,6 +43,12 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Telemetry tokens belong to services; Sanctum rejects tokens owned by any other model.
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'services',
+        ],
     ],
 
     /*
@@ -65,6 +72,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'services' => [
+            'driver' => 'eloquent',
+            'model' => Service::class,
         ],
 
         // 'users' => [

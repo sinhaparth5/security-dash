@@ -3,68 +3,73 @@
 # The app listens on :8080 over plain HTTP; put a TLS-terminating reverse proxy in front of it.
 
 x-app: &app
-  build: .
-  image: security-dash:latest
-  restart: unless-stopped
-  env_file: .env.production
-  environment:
-    DB_CONNECTION: pgsql
-    DB_HOST: db
-    DB_PORT: 5432
-  depends_on:
-    db:
-      condition: service_healthy
-    migrate:
-      condition: service_completed_successfully
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
+    build: .
+    image: security-dash:latest
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+        DB_CONNECTION: pgsql
+        DB_HOST: db
+        DB_PORT: 5432
+    depends_on:
+        db:
+            condition: service_healthy
+        migrate:
+            condition: service_completed_successfully
+    security_opt:
+        - no-new-privileges:true
+    cap_drop:
+        - ALL
 
 services:
-  web:
-    <<: *app
-    ports:
-      - "8080:8080"
+    web:
+        <<: *app
+        ports:
+            - '8080:8080'
 
-  queue:
-    <<: *app
-    command: ["php", "artisan", "queue:work", "--tries=3", "--max-time=3600"]
-    healthcheck:
-      disable: true
+    queue:
+        <<: *app
+        command:
+            ['php', 'artisan', 'queue:work', '--tries=3', '--max-time=3600']
+        healthcheck:
+            disable: true
 
-  scheduler:
-    <<: *app
-    command: ["php", "artisan", "schedule:work"]
-    healthcheck:
-      disable: true
+    scheduler:
+        <<: *app
+        command: ['php', 'artisan', 'schedule:work']
+        healthcheck:
+            disable: true
 
-  migrate:
-    <<: *app
-    restart: "no"
-    command: ["php", "artisan", "migrate", "--force"]
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      disable: true
+    migrate:
+        <<: *app
+        restart: 'no'
+        command: ['php', 'artisan', 'migrate', '--force']
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            disable: true
 
-  db:
-    image: postgres:18-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_DATABASE:?set DB_DATABASE in .env.production}
-      POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME in .env.production}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.production}
-    volumes:
-      - pgdata:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    security_opt:
-      - no-new-privileges:true
+    db:
+        image: postgres:18-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${DB_DATABASE:?set DB_DATABASE in .env.production}
+            POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME in .env.production}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.production}
+        volumes:
+            - pgdata:/var/lib/postgresql
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        security_opt:
+            - no-new-privileges:true
 
 volumes:
-  pgdata:
+    pgdata:

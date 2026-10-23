@@ -26,20 +26,14 @@ class Osv
         $advisories = [];
 
         foreach ($queryable->chunk(1000) as $chunk) {
-            $results = Http::acceptJson()->timeout(30)->retry(2, 500)
-                ->post('https://api.osv.dev/v1/querybatch', [
-                    'queries' => $chunk->map(fn (Dependency $dependency) => [
-                        'package' => $this->package($dependency),
-                        'version' => Releases::normalize($dependency->version),
-                    ])->values()->all(),
-                ])
-                ->throw()
-                ->json('results');
+            $batch = array_values($chunk->all());
+            $results = $this->queryBatch($batch);
 
-            foreach ($chunk->values() as $index => $dependency) {
-                $advisories[$dependency->id] = collect($results[$index]['vulns'] ?? [])
-                    ->map(fn (array $vuln) => $this->advisory($this->vulnerability($vuln['id'], $vuln['modified']), $dependency))
-                    ->all();
+            foreach ($batch as $index => $dependency) {
+                $advisories[$dependency->id] = array_map(
+                    fn (array $vuln) => $this->advisory($this->vulnerability($vuln['id'], $vuln['modified']), $dependency),
+                    $results[$index]['vulns'] ?? [],
+                );
             }
         }
 
@@ -62,7 +56,28 @@ class Osv
     }
 
     /**
-     * @return array<string, mixed>
+     * One OSV querybatch call: results line up with the dependencies by index.
+     *
+     * @param  list<Dependency>  $dependencies
+     * @return list<array{vulns?: list<array{id: string, modified: string}>}>
+     */
+    private function queryBatch(array $dependencies): array
+    {
+        return Http::acceptJson()->timeout(30)->retry(2, 500)
+            ->post('https://api.osv.dev/v1/querybatch', [
+                'queries' => array_map(fn (Dependency $dependency) => [
+                    'package' => $this->package($dependency),
+                    'version' => Releases::normalize($dependency->version),
+                ], $dependencies),
+            ])
+            ->throw()
+            ->json('results');
+    }
+
+    /**
+     * The fields of an OSV vulnerability record this app reads.
+     *
+     * @return array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>}>}
      */
     private function vulnerability(string $id, string $modified): array
     {
@@ -73,7 +88,7 @@ class Osv
     }
 
     /**
-     * @param  array<string, mixed>  $vulnerability
+     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>}>}  $vulnerability
      * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null}
      */
     private function advisory(array $vulnerability, Dependency $dependency): array

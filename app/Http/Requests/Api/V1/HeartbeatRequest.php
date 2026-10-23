@@ -15,7 +15,7 @@ class HeartbeatRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user() instanceof Service;
+        return $this->user('sanctum') instanceof Service;
     }
 
     /**

@@ -26,7 +26,7 @@ class HeartbeatController extends Controller
         $service = $request->user();
 
         /** @var array<string, array{ecosystem: string, name: string, version: string}> $reported */
-        $reported = collect($request->validated('dependencies'))
+        $reported = $request->safe()->collect('dependencies')
             ->keyBy(fn (array $dependency) => $dependency['ecosystem'].'|'.$dependency['name'])
             ->all();
 

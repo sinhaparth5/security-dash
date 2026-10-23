@@ -91,9 +91,10 @@ class Releases
      */
     private function goReleases(): array
     {
-        return Cache::remember('upstream:go-releases', now()->addHours(6), fn () => collect(
-            Http::acceptJson()->timeout(15)->retry(2, 500)->get('https://go.dev/dl/?mode=json')->throw()->json()
-        )->where('stable', true)->map(fn (array $release) => self::normalize($release['version']))->values()->all());
+        return Cache::remember('upstream:go-releases', now()->addHours(6), fn () => array_values(
+            Http::acceptJson()->timeout(15)->retry(2, 500)->get('https://go.dev/dl/?mode=json')->throw()->collect()
+                ->where('stable', true)->map(fn (array $release) => self::normalize($release['version']))->all()
+        ));
     }
 
     /**
@@ -101,12 +102,13 @@ class Releases
      */
     private function nodeReleases(): array
     {
-        return Cache::remember('upstream:node-releases', now()->addHours(6), fn () => collect(
-            Http::acceptJson()->timeout(15)->retry(2, 500)->get('https://nodejs.org/dist/index.json')->throw()->json()
-        )->map(fn (array $release) => [
-            'version' => self::normalize($release['version']),
-            'security' => (bool) $release['security'],
-        ])->values()->all());
+        return Cache::remember('upstream:node-releases', now()->addHours(6), fn () => array_values(
+            Http::acceptJson()->timeout(15)->retry(2, 500)->get('https://nodejs.org/dist/index.json')->throw()->collect()
+                ->map(fn (array $release) => [
+                    'version' => self::normalize($release['version']),
+                    'security' => (bool) $release['security'],
+                ])->all()
+        ));
     }
 
     private function packageLatest(string $url, string $field): ?string
