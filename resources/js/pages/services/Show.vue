@@ -7,14 +7,18 @@ import {
     Clock,
     Copy,
     ExternalLink,
+    GitPullRequest,
     History,
     KeyRound,
     ShieldCheck,
     Skull,
+    Sparkles,
     Wrench,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import PullRequestController from '@/actions/App/Http/Controllers/PullRequestController';
 import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAcceptanceController';
+import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
 import InputError from '@/components/InputError.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -35,6 +39,7 @@ import { statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
 import type {
     Advisory,
+    AdvisoryTriage,
     Dependency,
     MonitoredService,
     RiskAcceptance,
@@ -55,6 +60,7 @@ defineOptions({
 const props = defineProps<{
     service: MonitoredService;
     history: StatusChange[];
+    canOpenPullRequests: boolean;
 }>();
 
 usePoll(60_000, { only: ['service', 'history'] });
@@ -150,6 +156,56 @@ const fixCommands = computed(() => {
         ...(go.length ? [`go get ${go.join(' ')} && go mod tidy`] : []),
     ];
 });
+
+const urgencyLabels = ['Routine', 'Soon', 'Urgent', 'Emergency'];
+
+const actionLabels: Record<AdvisoryTriage['action'], string> = {
+    upgrade: 'upgrade',
+    investigate: 'check if affected',
+    accept: 'likely safe to accept',
+    replace: 'remove or replace',
+};
+
+/** Below this, Jev spread its answer across options, so the label says so. */
+const CONFIDENT = 0.5;
+
+function triageLabel(triage: AdvisoryTriage): string {
+    const urgency = urgencyLabels[Math.round(triage.urgency)];
+    const unsure =
+        Math.min(triage.urgency_confidence, triage.action_confidence) <
+        CONFIDENT
+            ? ' (unsure)'
+            : '';
+
+    return `${urgency}, ${actionLabels[triage.action]}${unsure}`;
+}
+
+function canBump(dependency: Dependency): boolean {
+    return (
+        props.canOpenPullRequests &&
+        props.service.repository !== null &&
+        ['npm', 'go'].includes(dependency.ecosystem) &&
+        fixVersion(dependency) !== null
+    );
+}
+
+const openingPullRequest = ref<number | null>(null);
+
+function openPullRequest(dependency: Dependency): void {
+    router.post(
+        PullRequestController.store.url({
+            service: props.service.id,
+            dependency: dependency.id,
+        }),
+        {},
+        {
+            preserveScroll: true,
+            only: ['service'],
+            onStart: () => (openingPullRequest.value = dependency.id),
+            onFinish: () => (openingPullRequest.value = null),
+        },
+    );
+}
 
 const { copy, copied, text: copiedText } = useClipboard({ legacy: true });
 
@@ -310,6 +366,37 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     <Copy v-else aria-hidden="true" />
                 </Button>
             </div>
+            <Form
+                v-if="canOpenPullRequests"
+                v-bind="ServiceController.updateRepository.form(service.id)"
+                :options="{ preserveScroll: true, only: ['service'] }"
+                class="mt-2 flex flex-col gap-1.5 border-t pt-3"
+                v-slot="{ errors, processing }"
+            >
+                <Label for="repository">GitHub repository</Label>
+                <p class="text-xs text-muted-foreground">
+                    Link the repo to open a version-bump PR from each vulnerable
+                    dependency below.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                    <Input
+                        id="repository"
+                        name="repository"
+                        :default-value="service.repository ?? ''"
+                        placeholder="acme/billing-api"
+                        autocomplete="off"
+                        spellcheck="false"
+                        class="max-w-xs font-mono"
+                    />
+                    <Button
+                        type="submit"
+                        variant="outline"
+                        :disabled="processing"
+                        >Save</Button
+                    >
+                </div>
+                <InputError :message="errors.repository" />
+            </Form>
         </section>
 
         <nav
@@ -436,6 +523,33 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                 }}</span>
                             </template>
                         </div>
+                        <a
+                            v-if="dependency.pull_request_url"
+                            :href="dependency.pull_request_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="mt-2 inline-flex items-center gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
+                        >
+                            <GitPullRequest class="size-4" aria-hidden="true" />
+                            Upgrade PR opened
+                            <ExternalLink class="size-3" aria-hidden="true" />
+                            <span class="sr-only">(opens GitHub)</span>
+                        </a>
+                        <Button
+                            v-else-if="canBump(dependency)"
+                            variant="outline"
+                            size="sm"
+                            class="mt-2"
+                            :disabled="openingPullRequest === dependency.id"
+                            @click="openPullRequest(dependency)"
+                        >
+                            <GitPullRequest aria-hidden="true" />
+                            {{
+                                openingPullRequest === dependency.id
+                                    ? 'Opening PR…'
+                                    : `Open PR to ${fixVersion(dependency)}`
+                            }}
+                        </Button>
 
                         <ul class="mt-3 space-y-2">
                             <li
@@ -502,6 +616,19 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     >
                                         <ShieldCheck aria-hidden="true" />
                                         Risk accepted
+                                    </Badge>
+                                    <Badge
+                                        v-if="
+                                            advisory.triage &&
+                                            !advisory.accepted
+                                        "
+                                        variant="outline"
+                                        class="gap-1"
+                                        :title="`AI triage by Jev. Urgency confidence ${Math.round(advisory.triage.urgency_confidence * 100)}%, next step confidence ${Math.round(advisory.triage.action_confidence * 100)}%. A suggestion, not part of the grade.`"
+                                    >
+                                        <Sparkles aria-hidden="true" />
+                                        <span class="sr-only">AI triage:</span>
+                                        {{ triageLabel(advisory.triage) }}
                                     </Badge>
                                 </div>
                                 <p

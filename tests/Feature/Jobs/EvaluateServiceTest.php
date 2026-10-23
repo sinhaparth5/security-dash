@@ -265,3 +265,33 @@ test('a malicious package mails everyone even when the service was already red',
 
     Notification::assertCount(1);
 });
+
+test('jev triages counted advisories when a typesafe key is set', function () {
+    config(['services.typesafe.key' => 'ts-test']);
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Http::fake(['api.typesafe.ai/*' => Http::response(['model' => 'jev-1.13', 'usage' => ['input_tokens' => 1, 'output_tokens' => 1], 'answers' => [
+        'urgency_0' => ['type' => 'score', 'score' => 1.2, 'confidence' => 0.8, 'legend' => [], 'probabilities' => []],
+        'action_0' => ['type' => 'choice', 'choice' => 'upgrade', 'confidence' => 0.9, 'probabilities' => []],
+    ]])]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->advisories()->first()->triage)->toBe(['urgency' => 1.2, 'urgency_confidence' => 0.8, 'action' => 'upgrade', 'action_confidence' => 0.9]);
+    Http::assertSent(fn ($request) => $request->url() === 'https://api.typesafe.ai/v1/systemone'
+        && $request->hasHeader('Authorization', 'Bearer ts-test')
+        && $request['state']['advisories'][0]['package'] === 'lodash'
+        && $request['questions']['action_0']['type'] === 'choice');
+});
+
+test('a typesafe outage leaves grading intact and triage empty', function () {
+    config(['services.typesafe.key' => 'ts-test']);
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Http::fake(['api.typesafe.ai/*' => Http::response('', 503)]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Red);
+    expect($dependency->advisories()->first()->triage)->toBeNull();
+});

@@ -24,10 +24,11 @@ use Laravel\Sanctum\HasApiTokens;
  * @property list<string>|null $allowed_ips
  * @property Carbon|null $status_changed_at
  * @property Carbon|null $evaluated_at
+ * @property string|null $repository
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'environment', 'status', 'last_ping_at', 'allowed_ips', 'status_changed_at', 'evaluated_at'])]
+#[Fillable(['name', 'environment', 'status', 'last_ping_at', 'allowed_ips', 'status_changed_at', 'evaluated_at', 'repository'])]
 class Service extends Model implements AuthenticatableContract
 {
     /** @use HasFactory<ServiceFactory> */
@@ -68,6 +69,7 @@ class Service extends Model implements AuthenticatableContract
                         'version' => $dependency['version'],
                         'latest_version' => null,
                         'status' => ServiceStatus::Unknown,
+                        'pull_request_url' => null,
                     ]);
                 }
             }

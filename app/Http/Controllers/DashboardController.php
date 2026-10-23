@@ -99,6 +99,7 @@ class DashboardController extends Controller
                     'known_exploited' => $advisory->known_exploited,
                     'epss' => $advisory->epss,
                     'accepted' => $accepted->has($advisory->osv_id),
+                    'triage' => $advisory->triage,
                 ]);
 
             return [
@@ -109,6 +110,7 @@ class DashboardController extends Controller
                 'latest_version' => $dependency->latest_version,
                 'status' => $dependency->status,
                 'eol_at' => $dependency->eol_at?->toDateString(),
+                'pull_request_url' => $dependency->pull_request_url,
                 'malicious' => $advisories->contains(fn (array $advisory) => $advisory['malicious'] && ! $advisory['accepted']),
                 'advisories' => $advisories,
             ];
@@ -118,6 +120,7 @@ class DashboardController extends Controller
             'id' => $service->id,
             'name' => $service->name,
             'environment' => $service->environment,
+            'repository' => $service->repository,
             'status' => $service->status,
             'status_changed_at' => $service->status_changed_at?->toIso8601String(),
             'evaluated_at' => $service->evaluated_at?->toIso8601String(),

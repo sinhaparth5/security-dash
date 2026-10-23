@@ -36,6 +36,8 @@ const labels: Record<string, string> = {
     'token.revoked': 'Revoked token',
     'risk.accepted': 'Accepted risk',
     'risk.revoked': 'Removed risk acceptance',
+    'service.repository_updated': 'Linked GitHub repository',
+    'pull_request.opened': 'Opened upgrade PR',
     'user.login': 'Signed in',
     'user.login_denied': 'Sign-in denied',
 };

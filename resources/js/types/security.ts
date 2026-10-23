@@ -11,6 +11,15 @@ export type Advisory = {
     known_exploited: boolean;
     epss: number | null;
     accepted: boolean;
+    triage: AdvisoryTriage | null;
+};
+
+/** Jev's suggestion: urgency 0 (routine) to 3 (emergency), and the next step. */
+export type AdvisoryTriage = {
+    urgency: number;
+    urgency_confidence: number;
+    action: 'upgrade' | 'investigate' | 'accept' | 'replace';
+    action_confidence: number;
 };
 
 export type RiskAcceptance = {
@@ -43,6 +52,7 @@ export type Dependency = {
     latest_version: string | null;
     status: Status;
     eol_at: string | null;
+    pull_request_url: string | null;
     malicious: boolean;
     advisories: Advisory[];
 };
@@ -51,6 +61,7 @@ export type MonitoredService = {
     id: number;
     name: string;
     environment: string;
+    repository: string | null;
     status: Status;
     status_changed_at: string | null;
     evaluated_at: string | null;

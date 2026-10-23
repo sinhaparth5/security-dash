@@ -33,7 +33,15 @@ return [
         'client_secret' => env('GITHUB_CLIENT_SECRET'),
         'redirect' => '/auth/github/callback',
         // Comma-separated GitHub usernames allowed to sign in to the dashboard.
+        // Fine-grained token with Contents and Pull requests write access, used to open version-bump PRs.
+        'pr_token' => env('GITHUB_PR_TOKEN'),
         'allowed_logins' => array_values(array_filter(array_map('trim', explode(',', (string) env('GITHUB_ALLOWED_LOGINS', 'sinhaparth5'))))),
+    ],
+
+    'typesafe' => [
+        // Jev triages advisories when a key is set; without one, triage is skipped.
+        'key' => env('TYPESAFE_API_KEY'),
+        'model' => env('TYPESAFE_MODEL', 'jev-latest'),
     ],
 
     'slack' => [

@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Notifications\ServiceTurnedRed;
 use App\Upstream\Exploitability;
+use App\Upstream\Jev;
 use App\Upstream\Osv;
 use App\Upstream\Releases;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
@@ -40,7 +41,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * CI scan gave them unless every finding has been accepted.
      * Every user is mailed when the service first turns Red, or when a malicious package first shows up.
      */
-    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability): void
+    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev): void
     {
         $previousStatus = $this->service->fresh()->status;
         $wasMalicious = $this->hasMaliciousAdvisory();
@@ -102,6 +103,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         });
 
         $this->enrich($exploitability);
+        $this->triage($jev, $accepted->all());
 
         $turnedRed = $previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red;
         $turnedMalicious = ! $wasMalicious && $this->hasMaliciousAdvisory();
@@ -132,6 +134,26 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 'known_exploited' => isset($knownExploited[$advisory->cve()]),
                 'epss' => $scores[$advisory->cve()] ?? null,
             ]);
+        }
+    }
+
+    /**
+     * Ask Jev how soon each counted advisory needs fixing and what to do about it.
+     *
+     * @param  array<int, string>  $accepted
+     */
+    private function triage(Jev $jev, array $accepted): void
+    {
+        if (! $jev->enabled()) {
+            return;
+        }
+
+        $advisories = Advisory::with('dependency')->whereRelation('dependency', 'service_id', $this->service->id)
+            ->whereNotIn('osv_id', $accepted)->orderBy('id')->get();
+
+        // ponytail: best effort like enrich(), an outage only hides the suggestions until the next evaluation.
+        foreach (rescue(fn () => $jev->triage($this->service, $advisories), [], report: true) as $id => $triage) {
+            Advisory::whereKey($id)->update(['triage' => json_encode($triage)]);
         }
     }
 

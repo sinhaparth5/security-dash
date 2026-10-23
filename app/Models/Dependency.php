@@ -21,10 +21,11 @@ use Illuminate\Support\Carbon;
  * @property string|null $latest_version
  * @property ServiceStatus $status
  * @property Carbon|null $eol_at
+ * @property string|null $pull_request_url
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['ecosystem', 'name', 'version', 'latest_version', 'status', 'eol_at'])]
+#[Fillable(['ecosystem', 'name', 'version', 'latest_version', 'status', 'eol_at', 'pull_request_url'])]
 class Dependency extends Model
 {
     /** @use HasFactory<DependencyFactory> */

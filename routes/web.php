@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\GithubLoginController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PullRequestController;
 use App\Http\Controllers\RiskAcceptanceController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\TokenController;
@@ -30,6 +31,8 @@ Route::middleware('auth')->group(function () {
     Route::put('services/{service}/allowed-ips', [TokenController::class, 'updateAllowedIps'])->name('services.allowed-ips.update');
     Route::post('services/{service}/risk-acceptances', [RiskAcceptanceController::class, 'store'])->name('services.risk-acceptances.store');
     Route::delete('services/{service}/risk-acceptances/{riskAcceptance}', [RiskAcceptanceController::class, 'destroy'])->scopeBindings()->name('services.risk-acceptances.destroy');
+    Route::put('services/{service}/repository', [ServiceController::class, 'updateRepository'])->name('services.repository.update');
+    Route::post('services/{service}/dependencies/{dependency}/pull-request', [PullRequestController::class, 'store'])->middleware('throttle:10,1')->scopeBindings()->name('services.dependencies.pull-request.store');
     Route::get('audit', AuditController::class)->name('audit.index');
 });
 

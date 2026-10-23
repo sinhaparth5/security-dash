@@ -25,7 +25,8 @@ CI (Trivy) ─scan──────▶ POST /api/v1/telemetry/image-scan ─┤
                                 ├─ npm registry / Go proxy → latest package versions
                                 ├─ go.dev / nodejs.org → latest runtime releases
                                 ├─ endoflife.date      → runtime end-of-life dates
-                                └─ CISA KEV / FIRST EPSS → exploitation signals
+                                ├─ CISA KEV / FIRST EPSS → exploitation signals
+                                └─ TypeSafe Jev (optional) → triage suggestions
                                                            ▼
                                   database ──▶ dashboard (polls every minute)
 ```
@@ -202,6 +203,20 @@ MAIL_FROM_ADDRESS=patchwatch@yourdomain.com   # must be on the onboarded domain
 ```
 
 Alerts go to each user's email address from their profile settings, and are queued, so the **queue** container must be running. Limits: 50 recipients per message and 5 MiB per message. The daily quota starts conservative and grows with your sending reputation.
+
+### AI triage (TypeSafe Jev, optional)
+
+With `TYPESAFE_API_KEY` set, every evaluation asks [Jev](https://docs.typesafe.ai) two things about each advisory that still counts: how soon to fix it (routine, soon, urgent, emergency) and the best next step (upgrade, check if affected, likely safe to accept, remove or replace). The answer shows as a badge on the advisory, marked "(unsure)" when Jev's confidence is below 50%. It is a suggestion only and never changes a grade.
+
+What is sent: service name and environment, and per advisory the package, ecosystem, versions, OSV id, severity, summary, KEV and EPSS. Answers are cached for 7 days per identical input, so hourly re-evaluations don't re-bill. An outage only hides the badges. `TYPESAFE_MODEL` defaults to `jev-latest`.
+
+### Upgrade pull requests (optional)
+
+With `GITHUB_PR_TOKEN` set, link a service to its repo (`owner/name`) under **Fix the advisories** on the service page. Each vulnerable npm or Go dependency then gets an **Open PR** button that branches off the default branch (`patchwatch/<package>-<version>`), bumps the version in the root `package.json` (keeping `^`/`~`) or `go.mod`, and opens a PR listing the advisories it fixes.
+
+Use a [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to the service repos, with **Contents: Read and write** and **Pull requests: Read and write**. It is separate from the sign-in OAuth app.
+
+Only the manifest is changed. The PR body says to run `npm install` or `go mod tidy` on the branch so the lockfile catches up. Transitive dependencies (not listed in the manifest) can't be bumped this way.
 
 ## Tech stack
 
