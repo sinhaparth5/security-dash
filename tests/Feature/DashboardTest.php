@@ -55,3 +55,24 @@ test('dashboard flags services that have not reported recently as stale', functi
     'reported two days ago' => ['2 days', true],
     'never reported' => [null, true],
 ]);
+
+test('service page shows one service with its dependencies worst first', function () {
+    $service = Service::factory()->create(['status' => ServiceStatus::Red]);
+    Dependency::factory()->for($service)->create(['name' => 'a-current', 'status' => ServiceStatus::Green]);
+    $vulnerable = Dependency::factory()->for($service)->vulnerable()->create(['name' => 'lodash']);
+    Advisory::factory()->for($vulnerable)->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9']);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('services.show', $service))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('services/Show')
+            ->where('service.id', $service->id)
+            ->where('service.dependencies.0.name', 'lodash')
+            ->where('service.dependencies.0.advisories.0.osv_id', 'GHSA-29mw-wpgm-hmr9')
+            ->where('service.dependencies.1.name', 'a-current')
+        );
+});
+
+test('guests cannot open a service page', function () {
+    $this->get(route('services.show', Service::factory()->create()))->assertRedirect(route('login'));
+});

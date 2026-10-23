@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Head, usePoll } from '@inertiajs/vue3';
+import { Head, Link, router, usePoll } from '@inertiajs/vue3';
 import { useNow } from '@vueuse/core';
 import { Clock, Plus, Search, ServerOff, X } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
-import ServiceSheet from '@/components/ServiceSheet.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -86,14 +86,6 @@ const visible = computed(() => {
                 service.environment.toLowerCase().includes(needle)),
     );
 });
-
-// Track the selection by id so a poll refresh updates the open drawer in place.
-const selectedId = ref<number | null>(null);
-const selected = computed(
-    () =>
-        props.services.find((service) => service.id === selectedId.value) ??
-        null,
-);
 
 function advisoryCount(service: MonitoredService): number {
     return service.dependencies.reduce(
@@ -275,17 +267,19 @@ function dependencyBreakdown(service: MonitoredService) {
                             v-for="service in visible"
                             :key="service.id"
                             class="cursor-pointer"
-                            @click="selectedId = service.id"
+                            @click="
+                                router.visit(ServiceController.show(service.id))
+                            "
                         >
                             <TableCell class="py-3 pl-4">
-                                <!-- The button gives keyboard and screen-reader users the same entry point as a row click. -->
-                                <button
-                                    type="button"
-                                    class="cursor-pointer rounded-sm text-left font-medium focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-                                    @click.stop="selectedId = service.id"
+                                <!-- The link gives keyboard and screen-reader users the same entry point as a row click. -->
+                                <Link
+                                    :href="ServiceController.show(service.id)"
+                                    class="rounded-sm font-medium focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                                    @click.stop
                                 >
                                     {{ service.name }}
-                                </button>
+                                </Link>
                                 <div
                                     class="mt-0.5 font-mono text-xs text-muted-foreground"
                                 >
@@ -383,7 +377,6 @@ function dependencyBreakdown(service: MonitoredService) {
             </div>
         </section>
 
-        <ServiceSheet :service="selected" @close="selectedId = null" />
         <RegisterServiceSheet v-model:open="registering" />
     </div>
 </template>

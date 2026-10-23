@@ -6,9 +6,20 @@ use App\Models\Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Inertia\Response;
 
 class ServiceController extends Controller
 {
+    /**
+     * One service's dependencies grouped by what they need: security fixes, updates, nothing.
+     */
+    public function show(Service $service): Response
+    {
+        return Inertia::render('services/Show', [
+            'service' => DashboardController::present($service->load(DashboardController::relations())),
+        ]);
+    }
+
     /**
      * Register a service (if new) and issue it a heartbeat token, shown once via flash.
      * Same behaviour as `php artisan service:token`: existing tokens stay valid.

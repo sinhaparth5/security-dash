@@ -19,6 +19,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('logout', [GithubLoginController::class, 'destroy'])->name('logout');
     Route::get('dashboard', DashboardController::class)->name('dashboard');
+    Route::get('services/{service}', [ServiceController::class, 'show'])->name('services.show');
     Route::post('services', [ServiceController::class, 'store'])->middleware('throttle:20,1')->name('services.store');
     Route::delete('services/{service}/tokens/{token}', [ServiceController::class, 'revokeToken'])->name('services.tokens.destroy');
 });
