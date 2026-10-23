@@ -25,6 +25,9 @@ export const statusMeta: Record<
         badge: string;
         soft: string;
         text: string;
+        /** Chart marks: bars and the donut. */
+        fill: string;
+        stroke: string;
     }
 > = {
     red: {
@@ -34,6 +37,8 @@ export const statusMeta: Record<
         badge: 'bg-status-critical text-status-critical-foreground',
         soft: 'bg-status-critical-soft',
         text: 'text-status-critical',
+        fill: 'bg-status-critical',
+        stroke: 'stroke-status-critical',
     },
     yellow: {
         label: 'Update available',
@@ -42,6 +47,8 @@ export const statusMeta: Record<
         badge: 'bg-status-warning text-status-warning-foreground',
         soft: 'bg-status-warning-soft',
         text: 'text-status-warning-foreground dark:text-status-warning',
+        fill: 'bg-status-warning',
+        stroke: 'stroke-status-warning',
     },
     unknown: {
         label: 'Not evaluated',
@@ -50,6 +57,8 @@ export const statusMeta: Record<
         badge: 'border-border bg-status-unknown-soft text-muted-foreground',
         soft: 'bg-status-unknown-soft',
         text: 'text-muted-foreground',
+        fill: 'bg-status-unknown',
+        stroke: 'stroke-status-unknown',
     },
     green: {
         label: 'Up to date',
@@ -58,5 +67,7 @@ export const statusMeta: Record<
         badge: 'bg-status-ok text-status-ok-foreground',
         soft: 'bg-status-ok-soft',
         text: 'text-status-ok',
+        fill: 'bg-status-ok',
+        stroke: 'stroke-status-ok',
     },
 };

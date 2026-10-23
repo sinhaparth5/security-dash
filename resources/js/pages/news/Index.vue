@@ -63,7 +63,9 @@ function rank(
 
     <div class="flex flex-1 flex-col gap-8 p-4 md:p-6">
         <header class="flex flex-col gap-1">
-            <h1 class="text-2xl font-semibold tracking-tight">Security news</h1>
+            <h1 class="text-[28px] font-bold tracking-tight lowercase">
+                Security news
+            </h1>
             <p class="max-w-3xl text-sm text-muted-foreground">
                 From The Hacker News, BleepingComputer, SecurityWeek, Krebs on
                 Security and Dark Reading, refreshed every hour.
@@ -79,7 +81,7 @@ function rank(
 
         <section
             v-if="!featured.length && !important.length && !latest.length"
-            class="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center"
+            class="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center"
         >
             <Newspaper
                 class="size-8 text-muted-foreground"
@@ -104,7 +106,7 @@ function rank(
                 <article
                     v-for="(article, index) in featured"
                     :key="article.id"
-                    class="group relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-xs transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
+                    class="group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-card transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
                     :class="{ 'lg:col-span-2 lg:row-span-2': index === 0 }"
                 >
                     <div
@@ -195,7 +197,7 @@ function rank(
                 <article
                     v-for="article in important"
                     :key="article.id"
-                    class="group relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-xs transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
+                    class="group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-card transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
                 >
                     <div class="aspect-[16/9] overflow-hidden bg-muted">
                         <img
@@ -271,7 +273,7 @@ function rank(
                 }}
             </h2>
             <ul
-                class="divide-y overflow-hidden rounded-xl border bg-card shadow-xs"
+                class="divide-y overflow-hidden rounded-lg border bg-card shadow-card"
             >
                 <li
                     v-for="article in latest"

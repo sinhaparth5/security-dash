@@ -128,7 +128,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
 
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
         <header>
-            <h1 class="text-2xl font-semibold tracking-tight">
+            <h1 class="text-[28px] font-bold tracking-tight lowercase">
                 Connection and tokens
             </h1>
             <p class="mt-1 max-w-3xl text-sm text-muted-foreground">
@@ -169,7 +169,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
 
                 <ul
                     v-else
-                    class="flex max-h-[70vh] flex-col gap-1 overflow-y-auto rounded-xl border bg-card p-1.5 shadow-xs"
+                    class="flex max-h-[70vh] flex-col gap-1 overflow-y-auto rounded-lg border bg-card p-1.5 shadow-card"
                 >
                     <li v-for="service in visible" :key="service.id">
                         <Link
@@ -221,7 +221,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
 
             <section
                 v-if="!selected"
-                class="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-10 text-center"
+                class="flex min-h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-10 text-center"
             >
                 <MousePointerClick
                     class="size-8 text-muted-foreground"
@@ -262,7 +262,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                         <select
                             id="token-expiry"
                             v-model="expiresInDays"
-                            class="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                            class="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-card focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
                         >
                             <option value="">Never expires</option>
                             <option value="30">Expires in 30 days</option>
@@ -302,7 +302,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                     </p>
                 </div>
 
-                <div class="rounded-xl border bg-card p-4 shadow-xs">
+                <div class="rounded-lg border bg-card p-4 shadow-card">
                     <ServiceConnection
                         :name="selected.name"
                         :token="issuedToken"
@@ -438,7 +438,7 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                         aria-describedby="allowed-ips-help"
                         :value="selected.allowed_ips.join('\n')"
                         placeholder="10.0.0.0/8"
-                        class="w-full max-w-md rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                        class="w-full max-w-md rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-card focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
                     />
                     <InputError
                         :message="

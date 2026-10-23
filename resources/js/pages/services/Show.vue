@@ -295,7 +295,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 All services
             </Link>
             <div class="flex flex-wrap items-center gap-3">
-                <h1 class="text-2xl font-semibold tracking-tight break-all">
+                <h1 class="text-[28px] font-bold tracking-tight break-all">
                     {{ service.name }}
                 </h1>
                 <Badge variant="outline" class="font-mono">{{
@@ -352,7 +352,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
         <div
             v-if="service.malicious"
             role="alert"
-            class="flex gap-3 rounded-xl border border-status-critical bg-status-critical-soft p-4 text-sm"
+            class="flex gap-3 rounded-lg border border-status-critical bg-status-critical-soft p-4 text-sm"
         >
             <Skull
                 class="mt-0.5 size-5 shrink-0 text-status-critical"
@@ -374,7 +374,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
         <section
             v-if="fixCommands.length"
             aria-labelledby="fix-heading"
-            class="flex flex-col gap-2 rounded-xl border bg-card p-4 shadow-xs"
+            class="flex flex-col gap-2 rounded-lg border bg-card p-4 shadow-card"
         >
             <h2 id="fix-heading" class="flex items-center gap-2 font-semibold">
                 <Wrench
@@ -422,7 +422,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 v-for="group in groups"
                 :key="group.status"
                 :href="`#${group.status}`"
-                class="flex flex-col rounded-xl border bg-card p-4 shadow-xs transition-[border-color] duration-200 hover:border-ring/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="flex flex-col rounded-lg border bg-card p-4 shadow-card transition-[border-color] duration-200 hover:border-ring/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                 :class="{ 'opacity-60': group.dependencies.length === 0 }"
             >
                 <div class="flex items-center justify-between gap-2">
@@ -454,7 +454,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
 
         <p
             v-if="service.dependencies.length === 0"
-            class="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground"
+            class="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground"
         >
             This service has not reported any dependencies yet.
         </p>
@@ -491,7 +491,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     <li
                         v-for="dependency in group.dependencies"
                         :key="dependency.id"
-                        class="rounded-xl border bg-card p-4 shadow-xs"
+                        class="rounded-lg border bg-card p-4 shadow-card"
                     >
                         <div
                             class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
@@ -780,7 +780,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                             maxlength="1000"
                                             rows="2"
                                             placeholder="Not affected: we never call the vulnerable function."
-                                            class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                                            class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-card focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
                                         />
                                         <InputError :message="errors.reason" />
                                     </div>
@@ -822,7 +822,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
 
                 <div
                     v-else
-                    class="overflow-hidden rounded-xl border bg-card shadow-xs"
+                    class="overflow-hidden rounded-lg border bg-card shadow-card"
                 >
                     <Table>
                         <TableHeader>
@@ -1038,7 +1038,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
         </section>
         <section
             aria-labelledby="integrations-heading"
-            class="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs"
+            class="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-card"
         >
             <h2
                 id="integrations-heading"

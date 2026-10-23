@@ -7,6 +7,8 @@ use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\RiskAcceptance;
 use App\Models\Service;
+use App\Models\StatusChange;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -40,7 +42,58 @@ class DashboardController extends Controller
         return Inertia::render('Dashboard', [
             'services' => $services,
             'pipeline' => fn () => self::pipeline(),
+            'history' => fn () => self::history(),
         ]);
+    }
+
+    /**
+     * How many services sat in each status at the end of each of the last 30 days,
+     * and this month's status changes for the calendar.
+     *
+     * @return array{trend: list<array<string, int|string>>, events: list<array{service_id: int, service: string, status: ServiceStatus, at: string}>}
+     */
+    public static function history(): array
+    {
+        // ponytail: replays every status change ever; bound it to a snapshot per day once the table grows past ~100k rows
+        $changes = StatusChange::query()->orderBy('created_at')->orderBy('id')->get(['service_id', 'status', 'created_at'])->groupBy('service_id');
+        $services = Service::query()->get(['id', 'name', 'status', 'created_at']);
+
+        $trend = [];
+
+        foreach (range(29, 0) as $daysAgo) {
+            $endOfDay = now()->subDays($daysAgo)->endOfDay();
+            $day = ['date' => $endOfDay->toDateString()] + array_fill_keys(array_map(fn (ServiceStatus $status) => $status->value, ServiceStatus::cases()), 0);
+
+            foreach ($services as $service) {
+                $timeline = $changes->get($service->id, new Collection);
+                $change = $timeline->last(fn (StatusChange $change) => $change->created_at->lte($endOfDay));
+                // Services graded before status history existed have no rows: count them from when they were registered.
+                $status = $change instanceof StatusChange
+                    ? $change->status
+                    : ($timeline->isEmpty() && $service->created_at?->lte($endOfDay) ? $service->status : null);
+
+                if ($status !== null) {
+                    $day[$status->value]++;
+                }
+            }
+
+            $trend[] = $day;
+        }
+
+        $names = $services->pluck('name', 'id');
+
+        return [
+            'trend' => $trend,
+            'events' => array_values($changes->flatten()
+                ->filter(fn (StatusChange $change) => $change->created_at->gte(now()->startOfMonth()))
+                ->map(fn (StatusChange $change) => [
+                    'service_id' => $change->service_id,
+                    'service' => (string) $names->get($change->service_id),
+                    'status' => $change->status,
+                    'at' => $change->created_at->toIso8601String(),
+                ])
+                ->all()),
+        ];
     }
 
     /**

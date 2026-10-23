@@ -41,7 +41,7 @@
             <title>{{ config('app.name', 'Patchwatch') }}</title>
         </x-inertia::head>
     </head>
-    <body class="font-sans antialiased">
+    <body class="font-mono antialiased">
         <x-inertia::app />
     </body>
 </html>

@@ -28,7 +28,9 @@ defineProps<{
 
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
         <header>
-            <h1 class="text-2xl font-semibold tracking-tight">Packages</h1>
+            <h1 class="text-[28px] font-bold tracking-tight lowercase">
+                Packages
+            </h1>
             <p class="mt-1 max-w-3xl text-sm text-muted-foreground">
                 Every package across the fleet, with the services running each
                 version. Search for a package when a new advisory lands to see
@@ -62,7 +64,7 @@ defineProps<{
 
         <section
             v-if="packages.length === 0"
-            class="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center"
+            class="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center"
         >
             <Package class="size-8 text-muted-foreground" aria-hidden="true" />
             <h2 class="font-medium">
@@ -78,7 +80,7 @@ defineProps<{
             <li
                 v-for="pkg in packages"
                 :key="`${pkg.ecosystem}|${pkg.name}`"
-                class="rounded-xl border bg-card p-4 shadow-xs"
+                class="rounded-lg border bg-card p-4 shadow-card"
             >
                 <div
                     class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"

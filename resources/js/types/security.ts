@@ -47,6 +47,17 @@ export type Pipeline = {
     failed_jobs: number;
 };
 
+/** Services per status at the end of each of the last 30 days, plus this month's changes. */
+export type StatusHistory = {
+    trend: ({ date: string } & Record<Status, number>)[];
+    events: {
+        service_id: number;
+        service: string;
+        status: Status;
+        at: string;
+    }[];
+};
+
 export type Dependency = {
     id: number;
     ecosystem: 'go' | 'npm' | 'runtime' | 'image';

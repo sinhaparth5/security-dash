@@ -61,7 +61,9 @@ function describe(event: AuditEvent): string {
 
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
         <header>
-            <h1 class="text-2xl font-semibold tracking-tight">Audit log</h1>
+            <h1 class="text-[28px] font-bold tracking-tight lowercase">
+                Audit log
+            </h1>
             <p class="mt-1 max-w-3xl text-sm text-muted-foreground">
                 Every sign-in, service registration, token change, allowlist
                 edit and accepted risk, newest first. Use it to trace a leaked
@@ -71,7 +73,7 @@ function describe(event: AuditEvent): string {
 
         <section
             v-if="events.data.length === 0"
-            class="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center"
+            class="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center"
         >
             <ScrollText
                 class="size-8 text-muted-foreground"
@@ -80,7 +82,10 @@ function describe(event: AuditEvent): string {
             <h2 class="font-medium">Nothing recorded yet</h2>
         </section>
 
-        <div v-else class="overflow-hidden rounded-xl border bg-card shadow-xs">
+        <div
+            v-else
+            class="overflow-hidden rounded-lg border bg-card shadow-card"
+        >
             <Table>
                 <TableHeader>
                     <TableRow class="hover:bg-transparent">

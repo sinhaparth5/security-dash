@@ -120,3 +120,23 @@ test('the service page includes its status history newest first', function () {
             ->where('history.0.status', 'red')
             ->where('history.1.status', 'green'));
 });
+
+test('the dashboard charts how many services sat in each status per day and lists this month\'s changes', function () {
+    $this->travelTo(now()->setDate(2026, 10, 20)->setTime(12, 0));
+    $api = Service::factory()->create(['name' => 'api', 'status' => ServiceStatus::Red, 'created_at' => now()->subDays(40)]);
+    $api->statusChanges()->forceCreate(['status' => ServiceStatus::Green, 'created_at' => now()->subDays(40)]);
+    $api->statusChanges()->forceCreate(['status' => ServiceStatus::Red, 'created_at' => now()->subDays(2)]);
+    // Graded before status history existed: counted from registration with its current status.
+    Service::factory()->create(['status' => ServiceStatus::Yellow, 'created_at' => now()->subDays(10)]);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('history.trend', 30)
+            ->where('history.trend.0', ['date' => '2026-09-21', 'green' => 1, 'yellow' => 0, 'red' => 0, 'unknown' => 0])
+            ->where('history.trend.20', ['date' => '2026-10-11', 'green' => 1, 'yellow' => 1, 'red' => 0, 'unknown' => 0])
+            ->where('history.trend.29', ['date' => '2026-10-20', 'green' => 0, 'yellow' => 1, 'red' => 1, 'unknown' => 0])
+            ->has('history.events', 1)
+            ->where('history.events.0.service', 'api')
+            ->where('history.events.0.status', 'red'));
+});
