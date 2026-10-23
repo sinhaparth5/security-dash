@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
 import { ChevronLeft, ChevronRight, ScrollText } from '@lucide/vue';
+import { computed } from 'vue';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import FleetRadar from '@/components/FleetRadar.vue';
+import type { RadarBlip } from '@/components/FleetRadar.vue';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -13,7 +16,7 @@ import {
 } from '@/components/ui/table';
 import { lastSeen } from '@/lib/format';
 import { index as auditIndex } from '@/routes/audit';
-import type { AuditEvent } from '@/types';
+import type { AuditEvent, Status } from '@/types';
 
 defineOptions({
     layout: {
@@ -21,7 +24,7 @@ defineOptions({
     },
 });
 
-defineProps<{
+const props = defineProps<{
     events: {
         data: AuditEvent[];
         prev_page_url: string | null;
@@ -43,6 +46,30 @@ const labels: Record<string, string> = {
     'user.login': 'Signed in',
     'user.login_denied': 'Sign-in denied',
 };
+
+// Red is worth a look (denied sign-ins, accepted risk), yellow changed access, green is routine.
+const attention: Record<string, Status> = {
+    'user.login_denied': 'red',
+    'risk.accepted': 'red',
+    'token.issued': 'yellow',
+    'token.revoked': 'yellow',
+    'risk.revoked': 'yellow',
+    'service.allowed_ips_updated': 'yellow',
+    'service.badge_rotated': 'yellow',
+    'settings.updated': 'yellow',
+};
+
+const radarBlips = computed<RadarBlip[]>(() =>
+    props.events.data.map((event) => ({
+        id: event.id,
+        name: labels[event.action] ?? event.action,
+        status: attention[event.action] ?? 'green',
+        detail: event.user ?? event.service?.name,
+        href: event.service
+            ? ServiceController.show.url(event.service.id)
+            : undefined,
+    })),
+);
 
 function describe(event: AuditEvent): string {
     const details = event.details ?? {};
@@ -71,6 +98,14 @@ function describe(event: AuditEvent): string {
                 token back to who issued it.
             </p>
         </header>
+
+        <FleetRadar
+            v-if="radarBlips.length > 0"
+            :blips="radarBlips"
+            title="audit scan"
+            unit="events"
+            :labels="{ red: 'alert', yellow: 'change', green: 'routine' }"
+        />
 
         <section
             v-if="events.data.length === 0"

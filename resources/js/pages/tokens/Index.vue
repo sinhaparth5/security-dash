@@ -13,6 +13,8 @@ import {
 } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import FleetRadar from '@/components/FleetRadar.vue';
+import type { RadarBlip } from '@/components/FleetRadar.vue';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
 import InputError from '@/components/InputError.vue';
 import ServiceConnection from '@/components/ServiceConnection.vue';
@@ -62,6 +64,16 @@ const visible = computed(() => {
 function select(service: ServiceSummary) {
     return TokenController.index({ query: { service: service.id } });
 }
+
+const radarBlips = computed<RadarBlip[]>(() =>
+    props.services.map((service) => ({
+        id: service.id,
+        name: service.name,
+        status: service.status,
+        detail: plural(service.tokens_count, 'token', 'tokens'),
+        href: select(service).url,
+    })),
+);
 
 // Held locally: flash data is gone after the next visit, and the token is never shown again.
 const issuedToken = ref<string | null>(null);
@@ -137,6 +149,13 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                 environment gets its own.
             </p>
         </header>
+
+        <FleetRadar
+            v-if="radarBlips.length > 0"
+            :blips="radarBlips"
+            title="token scan"
+            unit="svc"
+        />
 
         <div class="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
             <nav

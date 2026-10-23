@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { router } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import { statusMeta, statusOrder } from '@/lib/status';
-import type { MonitoredService, Status } from '@/types';
+import type { Status } from '@/types';
+
+export type RadarBlip = {
+    id: number;
+    name: string;
+    status: Status;
+    /** Extra words for the readout, e.g. "3 adv". */
+    detail?: string;
+    /** Where a click goes; http(s) links open in a new tab. */
+    href?: string;
+};
 
 /**
- * An ASCII radar of the fleet, after ../ascii-sharks: a canvas cell grid, glyph ramps for light,
- * pointer play, paused off-screen and a still frame for reduced motion. Each service is a blip,
- * closer to the centre the worse its status; the sweep lights blips up, and red ones kick the
- * heartbeat line, the same one as in the logo.
+ * An ASCII radar, after ../ascii-sharks: a canvas cell grid, glyph ramps for light, pointer play,
+ * paused off-screen and a still frame for reduced motion. Each item is a blip, closer to the
+ * centre the worse its status; the sweep lights blips up, and red ones kick the heartbeat line,
+ * the same one as in the logo. Every page but settings shows one over its own items.
  */
-const props = defineProps<{ services: MonitoredService[] }>();
+const props = defineProps<{
+    blips: RadarBlip[];
+    /** Readout heading, e.g. "fleet scan". */
+    title: string;
+    /** Short plural for the count, e.g. "svc". */
+    unit: string;
+    /** Readout names per status, when red/yellow/… doesn't fit the page. */
+    labels?: Partial<Record<Status, string>>;
+}>();
 
 const canvas = ref<HTMLCanvasElement>();
 const hovered = ref<number | null>(null);
@@ -50,20 +67,16 @@ function hash(a: number, b = 0, c = 0): number {
 }
 
 const blips = computed(() =>
-    props.services.map((service) => ({
-        id: service.id,
-        name: service.name,
-        status: service.status,
-        angle: hash(service.id, 7) * Math.PI * 2,
-        radius: BAND[service.status] + (hash(service.id, 3) - 0.5) * 0.12,
-        advisories: service.dependencies.reduce(
-            (sum, dependency) =>
-                sum +
-                dependency.advisories.filter((advisory) => !advisory.accepted)
-                    .length,
-            0,
-        ),
+    props.blips.map((blip) => ({
+        ...blip,
+        angle: hash(blip.id, 7) * Math.PI * 2,
+        radius: BAND[blip.status] + (hash(blip.id, 3) - 0.5) * 0.12,
     })),
+);
+
+const label = (status: Status) => props.labels?.[status] ?? status;
+const target = computed(
+    () => blips.value.find((blip) => blip.id === hovered.value)?.href,
 );
 
 const counts = computed(
@@ -71,22 +84,23 @@ const counts = computed(
         Object.fromEntries(
             statusOrder.map((status) => [
                 status,
-                props.services.filter((service) => service.status === status)
-                    .length,
+                props.blips.filter((blip) => blip.status === status).length,
             ]),
         ) as Record<Status, number>,
 );
 
 const summary = computed(
     () =>
-        `Fleet radar: ${statusOrder
+        `${props.title}: ${statusOrder
             .map(
                 (status) =>
-                    `${counts.value[status]} ${statusMeta[status].label.toLowerCase()}`,
+                    `${counts.value[status]} ${props.labels?.[status] ?? statusMeta[status].label.toLowerCase()}`,
             )
-            .join(
-                ', ',
-            )}. Closer to the centre means worse. Click a blip to open that service.`,
+            .join(', ')}. Closer to the centre means worse.${
+            props.blips.some((blip) => blip.href)
+                ? ' Click a blip to open it.'
+                : ''
+        }`,
 );
 
 let ctx: CanvasRenderingContext2D | null = null;
@@ -391,12 +405,12 @@ function draw() {
     // 3. Readout: what the scope shows, in words.
     const left = readout;
     const barCells = Math.max(4, Math.min(12, usableCols() - left - 14));
-    const total = Math.max(1, props.services.length);
+    const total = Math.max(1, props.blips.length);
     const degrees = String(
         Math.floor(((sweep * 180) / Math.PI) % 360),
     ).padStart(3, '0');
     glyph(
-        fit(`fleet scan · ${props.services.length} svc`, left),
+        fit(`${props.title} · ${props.blips.length} ${props.unit}`, left),
         left,
         1,
         colors.ink,
@@ -414,7 +428,13 @@ function draw() {
         const filled = Math.round((counts.value[status] / total) * barCells);
         const row = 4 + index;
         glyph(GLYPH[status], left, row, colors.status[status], 1);
-        glyph(status.padEnd(8), left + 2, row, colors.ink, 1);
+        glyph(
+            label(status).slice(0, 7).padEnd(8),
+            left + 2,
+            row,
+            colors.ink,
+            1,
+        );
         glyph('#'.repeat(filled), left + 10, row, colors.status[status], 1);
         glyph(
             '.'.repeat(barCells - filled),
@@ -440,7 +460,7 @@ function draw() {
         glyph('>', left, 9, colors.status[focus.status], 1);
         glyph(
             fit(
-                `${focus.name.slice(0, 12)} ${focus.status}${focus.advisories ? ` · ${focus.advisories} adv` : ''}`,
+                `${focus.name.slice(0, 12)} ${label(focus.status)}${focus.detail ? ` · ${focus.detail}` : ''}`,
                 left + 2,
             ),
             left + 2,
@@ -454,9 +474,7 @@ function draw() {
 
     glyph(
         fit(
-            hovered.value !== null
-                ? '  click to open'
-                : '  click the scope to ping',
+            target.value ? '  click to open' : '  click the scope to ping',
             left,
         ),
         left,
@@ -558,8 +576,12 @@ function onLeave() {
 }
 
 function onClick(event: PointerEvent) {
-    if (hovered.value !== null) {
-        router.visit(ServiceController.show(hovered.value));
+    if (target.value) {
+        if (/^https?:/.test(target.value)) {
+            window.open(target.value, '_blank', 'noopener');
+        } else {
+            router.visit(target.value);
+        }
 
         return;
     }
@@ -631,11 +653,15 @@ watch(blips, () => draw());
 </script>
 
 <template>
-    <div role="img" :aria-label="summary" class="relative">
+    <div
+        role="img"
+        :aria-label="summary"
+        class="relative h-60 w-full overflow-hidden rounded-lg border bg-card shadow-card"
+    >
         <canvas
             ref="canvas"
             class="block size-full font-mono select-none"
-            :class="hovered !== null ? 'cursor-pointer' : 'cursor-crosshair'"
+            :class="target ? 'cursor-pointer' : 'cursor-crosshair'"
             @pointermove="onMove"
             @pointerleave="onLeave"
             @pointerup="onClick"

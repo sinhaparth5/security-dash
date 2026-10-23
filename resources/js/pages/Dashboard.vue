@@ -30,6 +30,7 @@ import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
 import FleetRadar from '@/components/FleetRadar.vue';
+import type { RadarBlip } from '@/components/FleetRadar.vue';
 import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
@@ -71,6 +72,26 @@ const props = defineProps<{
     pipeline: Pipeline;
     history: StatusHistory;
 }>();
+
+const radarBlips = computed<RadarBlip[]>(() =>
+    props.services.map((service) => {
+        const advisories = service.dependencies.reduce(
+            (sum, dependency) =>
+                sum +
+                dependency.advisories.filter((advisory) => !advisory.accepted)
+                    .length,
+            0,
+        );
+
+        return {
+            id: service.id,
+            name: service.name,
+            status: service.status,
+            detail: advisories ? `${advisories} adv` : undefined,
+            href: ServiceController.show.url(service.id),
+        };
+    }),
+);
 
 const refreshedAt = ref(Date.now());
 
@@ -425,9 +446,10 @@ function dependencyBreakdown(service: MonitoredService) {
                 </div>
             </div>
             <FleetRadar
-                v-if="services.length > 0"
-                :services="services"
-                class="h-60 w-full overflow-hidden rounded-lg border bg-card shadow-card"
+                v-if="radarBlips.length > 0"
+                :blips="radarBlips"
+                title="fleet scan"
+                unit="svc"
             />
         </header>
 

@@ -24,6 +24,8 @@ import { computed, ref } from 'vue';
 import PullRequestController from '@/actions/App/Http/Controllers/PullRequestController';
 import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAcceptanceController';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import FleetRadar from '@/components/FleetRadar.vue';
+import type { RadarBlip } from '@/components/FleetRadar.vue';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
 import InputError from '@/components/InputError.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
@@ -69,6 +71,19 @@ const props = defineProps<{
     autoPullRequests: boolean;
     badgeUrl: string | null;
 }>();
+
+const radarBlips = computed<RadarBlip[]>(() =>
+    props.service.dependencies.map((dependency) => ({
+        id: dependency.id,
+        name: dependency.name,
+        status: dependency.status,
+        detail:
+            dependency.latest_version &&
+            dependency.latest_version !== dependency.version
+                ? `${dependency.version} → ${dependency.latest_version}`
+                : dependency.version,
+    })),
+);
 
 usePoll(60_000, { only: ['service', 'history'] });
 
@@ -348,6 +363,13 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 }}
             </p>
         </header>
+
+        <FleetRadar
+            v-if="radarBlips.length > 0"
+            :blips="radarBlips"
+            title="dependency scan"
+            unit="deps"
+        />
 
         <div
             v-if="service.malicious"

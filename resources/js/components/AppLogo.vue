@@ -11,9 +11,9 @@ const name = usePage().props.name;
     >
         <AppLogoIcon class="size-5" />
     </div>
-    <div class="ml-1 grid flex-1 text-left text-sm">
+    <div class="ml-1 grid flex-1 text-left text-base">
         <span class="truncate leading-tight font-semibold">{{ name }}</span>
-        <span class="truncate text-xs text-muted-foreground"
+        <span class="truncate text-sm text-muted-foreground"
             >Dependency health</span
         >
     </div>
