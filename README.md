@@ -212,7 +212,7 @@ What is sent: service name and environment, and per advisory the package, ecosys
 
 ### Upgrade pull requests (optional)
 
-With `GITHUB_PR_TOKEN` set, link a service to its repo (`owner/name`) under **Fix the advisories** on the service page. Each vulnerable npm or Go dependency then gets an **Open PR** button that branches off the default branch (`patchwatch/<package>-<version>`), bumps the version in the root `package.json` (keeping `^`/`~`) or `go.mod`, and opens a PR listing the advisories it fixes.
+With `GITHUB_PR_TOKEN` set, link a service to its repo (`owner/name`) under **Fix the advisories** on the service page. Each vulnerable npm or Go dependency then gets an **Open PR** button that branches off the default branch (`patchwatch/<package>-<version>`), bumps the version in the first `package.json` (keeping `^`/`~`) or `go.mod` that lists it, root first and then subfolders (skipping `node_modules`/`vendor`), and opens a PR listing the advisories it fixes.
 
 Use a [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to the service repos, with **Contents: Read and write** and **Pull requests: Read and write**. It is separate from the sign-in OAuth app.
 

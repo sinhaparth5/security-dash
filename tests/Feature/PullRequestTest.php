@@ -34,12 +34,17 @@ test('the manifest bump keeps the range prefix and only touches the named depend
     expect(GitHub::bump(Ecosystem::Npm, '{"dependencies":{"lodash":"github:lodash/lodash"}}', 'lodash', '4.17.21'))->toBeNull();
 });
 
-test('opening a pr bumps to the version that clears every advisory and links it', function () {
+test('opening a pr bumps the manifest wherever it lives to the version that clears every advisory', function () {
     $dependency = vulnerableLodash();
     Http::fake([
         'api.github.com/repos/acme/billing' => Http::response(['default_branch' => 'main']),
         'api.github.com/repos/acme/billing/git/ref/heads/main' => Http::response(['object' => ['sha' => 'abc']]),
-        'api.github.com/repos/acme/billing/contents/package.json*' => Http::sequence()
+        'api.github.com/repos/acme/billing/git/trees/abc*' => Http::response(['tree' => [
+            ['path' => 'README.md', 'type' => 'blob'],
+            ['path' => 'node_modules/lodash/package.json', 'type' => 'blob'],
+            ['path' => 'apps/web/package.json', 'type' => 'blob'],
+        ]]),
+        'api.github.com/repos/acme/billing/contents/apps/web/package.json*' => Http::sequence()
             ->push(['sha' => 'file1', 'content' => base64_encode('{"dependencies":{"lodash":"^4.17.20"}}')])
             ->push(['content' => []]),
         'api.github.com/repos/acme/billing/git/refs' => Http::response([], 201),
@@ -54,7 +59,8 @@ test('opening a pr bumps to the version that clears every advisory and links it'
     expect($dependency->fresh()->pull_request_url)->toBe('https://github.com/acme/billing/pull/7');
     Http::assertSent(fn ($request) => $request->method() === 'PUT'
         && base64_decode($request['content']) === '{"dependencies":{"lodash":"^4.17.21"}}'
-        && $request['branch'] === 'patchwatch/lodash-4.17.21');
+        && $request['branch'] === 'patchwatch/lodash-4.17.21'
+        && str_ends_with($request->url(), 'contents/apps/web/package.json'));
     $this->assertDatabaseHas('audit_events', ['action' => 'pull_request.opened']);
 });
 

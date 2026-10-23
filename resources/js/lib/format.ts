@@ -1,3 +1,5 @@
+import type { Dependency } from '@/types';
+
 const relativeTime = new Intl.RelativeTimeFormat(undefined, {
     numeric: 'auto',
 });
@@ -26,4 +28,16 @@ export function plural(
     pluralForm: string,
 ): string {
     return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+const registries: Partial<Record<Dependency['ecosystem'], string>> = {
+    npm: 'https://www.npmjs.com/package/',
+    go: 'https://pkg.go.dev/',
+};
+
+/** The package's registry page, or null for runtimes and images. */
+export function packageUrl(dependency: Dependency): string | null {
+    const base = registries[dependency.ecosystem];
+
+    return base ? base + dependency.name : null;
 }

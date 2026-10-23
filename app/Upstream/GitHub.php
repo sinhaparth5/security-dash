@@ -28,16 +28,14 @@ class GitHub
      */
     public function openVersionBump(string $repository, Dependency $dependency, string $version, array $advisoryIds): string
     {
-        // ponytail: manifest at the repo root only; add a per-service path when monorepos show up.
-        $path = self::MANIFESTS[$dependency->ecosystem->value] ?? throw new RuntimeException('Only npm and Go dependencies can be bumped.');
+        $manifest = self::MANIFESTS[$dependency->ecosystem->value] ?? throw new RuntimeException('Only npm and Go dependencies can be bumped.');
         $api = $this->api();
 
         $base = $api->get("repos/{$repository}")->throw()->json('default_branch');
         $head = $api->get("repos/{$repository}/git/ref/heads/{$base}")->throw()->json('object.sha');
-        $file = $api->get("repos/{$repository}/contents/{$path}", ['ref' => $base])->throw()->json();
 
-        $updated = self::bump($dependency->ecosystem, base64_decode($file['content']), $dependency->name, $version)
-            ?? throw new RuntimeException("{$dependency->name} is not a direct dependency in {$path}, so there is nothing to bump.");
+        [$path, $file, $updated] = $this->findManifest($api, $repository, $head, $manifest, $dependency, $version)
+            ?? throw new RuntimeException("{$dependency->name} is not a direct dependency in any {$manifest} in {$repository}, so there is nothing to bump.");
 
         $branch = 'patchwatch/'.preg_replace('/[^A-Za-z0-9._-]+/', '-', ltrim($dependency->name, '@')).'-'.$version;
 
@@ -93,6 +91,33 @@ class GitHub
         $updated = preg_replace($pattern, $replacement, $manifest, 1, $count);
 
         return $count === 1 ? $updated : null;
+    }
+
+    /**
+     * The first manifest, shallowest first, that lists the dependency directly: [path, file, updated content].
+     *
+     * @return array{string, array{sha: string, content: string}, string}|null
+     */
+    private function findManifest(PendingRequest $api, string $repository, string $head, string $manifest, Dependency $dependency, string $version): ?array
+    {
+        // ponytail: one recursive tree listing, first 20 candidates; GitHub truncates trees past ~100k entries.
+        $paths = $api->get("repos/{$repository}/git/trees/{$head}", ['recursive' => 1])->throw()->collect('tree')
+            ->where('type', 'blob')
+            ->pluck('path')
+            ->filter(fn (string $path) => basename($path) === $manifest && ! preg_match('#(^|/)(node_modules|vendor)/#', $path))
+            ->sortBy(fn (string $path) => substr_count($path, '/'))
+            ->take(20);
+
+        foreach ($paths as $path) {
+            $file = $api->get("repos/{$repository}/contents/{$path}", ['ref' => $head])->throw()->json();
+            $updated = self::bump($dependency->ecosystem, base64_decode($file['content']), $dependency->name, $version);
+
+            if ($updated !== null) {
+                return [$path, $file, $updated];
+            }
+        }
+
+        return null;
     }
 
     private function api(): PendingRequest

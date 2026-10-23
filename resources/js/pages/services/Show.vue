@@ -34,7 +34,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { lastSeen, plural } from '@/lib/format';
+import { lastSeen, packageUrl, plural } from '@/lib/format';
 import { statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
 import type {
@@ -484,7 +484,20 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             <span
                                 class="flex flex-wrap items-center gap-2 font-medium break-all"
                             >
-                                {{ dependency.name }}
+                                <a
+                                    v-if="packageUrl(dependency)"
+                                    :href="packageUrl(dependency)!"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="underline-offset-2 hover:underline"
+                                    >{{ dependency.name
+                                    }}<span class="sr-only">
+                                        (opens in a new tab)</span
+                                    ></a
+                                >
+                                <template v-else>{{
+                                    dependency.name
+                                }}</template>
                                 <Badge
                                     v-if="dependency.malicious"
                                     class="gap-1 border-transparent bg-status-critical text-status-critical-foreground"
@@ -779,7 +792,20 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                 <TableCell
                                     class="py-3 pl-4 font-medium break-all whitespace-normal"
                                 >
-                                    {{ dependency.name }}
+                                    <a
+                                        v-if="packageUrl(dependency)"
+                                        :href="packageUrl(dependency)!"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="underline-offset-2 hover:underline"
+                                        >{{ dependency.name
+                                        }}<span class="sr-only">
+                                            (opens in a new tab)</span
+                                        ></a
+                                    >
+                                    <template v-else>{{
+                                        dependency.name
+                                    }}</template>
                                     <Badge
                                         v-if="endOfLife(dependency)"
                                         variant="outline"
