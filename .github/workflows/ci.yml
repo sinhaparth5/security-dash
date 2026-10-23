@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Setup Application
+        run: composer setup
+
+      - name: Run CI Checks
+        run: composer ci:check
+
+  # Publishes ghcr.io/<owner>/<repo>:latest and :<short sha> once check passes on master
+  image:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        run: echo "tag=${GITHUB_SHA::6}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        env:
+          # Deploy the exact build, so rolling back is re-running an older tag
+          IMAGE: ghcr.io/${{ github.repository }}:${{ needs.image.outputs.tag }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: IMAGE,GHCR_USERNAME,GHCR_TOKEN
+          script: |
+            set -e
+            # Runtime config lives only on the server; docker reads it as the deploy user
+            ENV_FILE=/opt/patchwork/patchwatch.env
+            test -r "$ENV_FILE" || { echo "missing $ENV_FILE" >&2; exit 1; }
+            # Join the network goc-postgres is on, so DB_HOST=goc-postgres resolves
+            NETWORK=$(docker inspect goc-postgres --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' | head -n1)
+
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            docker pull "$IMAGE"
+
+            # Same image, env and hardening for every role
+            COMMON="--env-file $ENV_FILE --network $NETWORK --cap-drop ALL --security-opt no-new-privileges"
+
+            # Migrate before swapping; if this fails the old containers keep serving
+            docker run --rm --name patchwatch-migrate --no-healthcheck $COMMON "$IMAGE" php artisan migrate --force
+
+            # Give the worker time to finish an in-flight evaluation before it is killed
+            docker stop -t 60 patchwatch-web patchwatch-queue patchwatch-scheduler 2>/dev/null || true
+            docker rm patchwatch-web patchwatch-queue patchwatch-scheduler 2>/dev/null || true
+
+            docker run -d --name patchwatch-web --restart unless-stopped \
+              -p 127.0.0.1:18092:8080 $COMMON "$IMAGE"
+            docker run -d --name patchwatch-queue --restart unless-stopped --no-healthcheck \
+              $COMMON "$IMAGE" php artisan queue:work --tries=3 --max-time=3600
+            docker run -d --name patchwatch-scheduler --restart unless-stopped --no-healthcheck \
+              $COMMON "$IMAGE" php artisan schedule:work
+
+            # Keep only the running image; a rollback re-pulls its tag from ghcr
+            docker images "${IMAGE%:*}" --format '{{.Repository}}:{{.Tag}}' | grep -vxF "$IMAGE" | xargs -r docker rmi || true
+            docker image prune -f
