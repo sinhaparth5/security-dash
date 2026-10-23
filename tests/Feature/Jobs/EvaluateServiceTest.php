@@ -327,17 +327,17 @@ test('turning red posts the alert to the slack webhook with service-reported tex
         && ! str_contains($request['text'], '<!channel>'));
 });
 
-test('discord webhooks get the alert with mentions disabled', function () {
+test('discord webhooks get the alert with mentions and masked links disabled', function () {
     Notification::fake();
     config(['services.alerts.webhook_url' => 'https://discord.com/api/webhooks/1/x']);
-    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '[4.17.20](https://evil.example)']);
     fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
     Http::fake(['discord.com/*' => Http::response([], 204)]);
 
     EvaluateService::dispatchSync($dependency->service);
 
     Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://discord.com/')
-        && str_contains($request['content'], 'lodash') && $request['allowed_mentions'] === ['parse' => []]);
+        && str_contains($request['content'], 'lodash \\[4.17.20\\](https://evil.example)') && $request['allowed_mentions'] === ['parse' => []]);
 });
 
 test('evaluation refreshes the state of open upgrade prs', function () {

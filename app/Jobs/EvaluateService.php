@@ -175,12 +175,12 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         }
 
         // Dependency names come from the service, so they must not ping anyone or smuggle in links:
-        // Discord gets mentions disabled, Slack gets its control characters escaped.
+        // Discord gets mentions disabled and link brackets escaped, Slack gets its control characters escaped.
         $payload = str_contains($url, 'discord')
-            ? ['content' => $text, 'allowed_mentions' => ['parse' => []]]
+            ? ['content' => ServiceTurnedRed::unlinked($text), 'allowed_mentions' => ['parse' => []]]
             : ['text' => str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text)];
 
-        return rescue(fn () => Http::timeout(10)->post($url, $payload)->throw()->successful(), false, report: true);
+        return rescue(fn () => Http::timeout(10)->withoutRedirecting()->post($url, $payload)->throw()->successful(), false, report: true);
     }
 
     /**

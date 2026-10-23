@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\EvaluateService;
 use App\Models\AuditEvent;
 use App\Models\Setting;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -51,7 +52,15 @@ class IntegrationController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'webhook_url' => ['nullable', 'url:https', 'max:2048'],
+            'webhook_url' => ['nullable', 'url:https', 'max:2048', function (string $attribute, string $value, Closure $fail) {
+                // ponytail: rejects IP literals and localhost only; a DNS name pointing at a private address
+                // still passes. Resolve and pin the address at send time if operators stop being trusted.
+                $host = trim((string) parse_url($value, PHP_URL_HOST), '[]');
+
+                if (filter_var($host, FILTER_VALIDATE_IP) !== false || in_array(strtolower(rtrim($host, '.')), ['localhost', 'localhost.localdomain'], true) || str_ends_with(strtolower($host), '.localhost')) {
+                    $fail(__('Use the webhook\'s public hostname, not an IP address or localhost.'));
+                }
+            }],
             'typesafe_key' => ['nullable', 'string', 'max:500'],
             'typesafe_model' => ['nullable', 'string', 'max:100', 'regex:/^[\w.\-]+$/'],
             'github_pr_token' => ['nullable', 'string', 'max:500'],

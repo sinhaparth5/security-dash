@@ -46,7 +46,7 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
 
         if ($malicious->isNotEmpty()) {
             $message->subject("Malicious package detected: {$label}")
-                ->line("{$label} depends on a package OSV reports as malware ({$malicious->pluck('osv_id')->unique()->join(', ')}).")
+                ->line(self::unlinked("{$label} depends on a package OSV reports as malware ({$malicious->pluck('osv_id')->unique()->join(', ')})."))
                 ->line('Treat every machine that installed it as compromised: remove the package, rebuild from a clean state and rotate any secrets it could read.');
         } else {
             $message->subject("Security patch required: {$label}")
@@ -54,7 +54,7 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
         }
 
         foreach ($vulnerable->take(self::LISTED_DEPENDENCIES) as $dependency) {
-            $message->line($this->describe($dependency));
+            $message->line(self::unlinked($this->describe($dependency)));
         }
 
         if ($vulnerable->count() > self::LISTED_DEPENDENCIES) {
@@ -92,6 +92,15 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
             ->with('advisories')
             ->orderByDesc('advisories_count')
             ->get();
+    }
+
+    /**
+     * Escape Markdown link brackets, so names a service reports can't become masked links in mail or Discord.
+     * HTML is already escaped by the mail template, which also stops <https://…> autolinks.
+     */
+    public static function unlinked(string $text): string
+    {
+        return str_replace(['[', ']'], ['\\[', '\\]'], $text);
     }
 
     private function describe(Dependency $dependency): string

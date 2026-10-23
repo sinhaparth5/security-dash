@@ -58,6 +58,12 @@ test('the alert webhook must be https and the model a plain name', function () {
     expect(Setting::count())->toBe(0);
 });
 
+test('the alert webhook cannot point at an ip address or localhost', function (string $url) {
+    $this->actingAs(User::factory()->create())
+        ->put(route('integrations.update'), ['webhook_url' => $url])
+        ->assertSessionHasErrors('webhook_url');
+})->with(['https://169.254.169.254/latest', 'https://10.0.0.5/hook', 'https://[::1]/hook', 'https://localhost/hook', 'https://api.localhost/hook']);
+
 test('the test button posts to the saved webhook and reports a rejection', function () {
     Http::preventStrayRequests();
     Setting::create(['key' => 'services.alerts.webhook_url', 'value' => 'https://discord.com/api/webhooks/1/x']);

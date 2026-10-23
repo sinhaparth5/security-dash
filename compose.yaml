@@ -25,7 +25,8 @@ services:
     web:
         <<: *app
         ports:
-            - '8080:8080'
+            # Loopback only: the app trusts X-Forwarded-For, so it must only be reachable through the reverse proxy.
+            - '127.0.0.1:8080:8080'
 
     queue:
         <<: *app

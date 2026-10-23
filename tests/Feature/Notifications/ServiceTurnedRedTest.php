@@ -36,6 +36,18 @@ test('the mail escapes dependency names reported by the service', function () {
         ->not->toContain("<script>alert('xss')</script>");
 });
 
+test('the mail does not turn names reported by the service into links', function () {
+    $service = Service::factory()->create(['status' => ServiceStatus::Red]);
+    $dependency = Dependency::factory()->for($service)->vulnerable()->create(['name' => '[Sign in again](https://evil.example/login)']);
+    Advisory::factory()->for($dependency)->create();
+
+    $content = (string) (new ServiceTurnedRed($service))->toMail(User::factory()->make())->render();
+
+    expect($content)
+        ->toContain('[Sign in again](https://evil.example/login)')
+        ->not->toContain('href="https://evil.example/login"');
+});
+
 test('the mail summarises dependencies beyond the first five', function () {
     $service = Service::factory()->create(['status' => ServiceStatus::Red]);
     Dependency::factory()->for($service)->vulnerable()->count(7)->create()
