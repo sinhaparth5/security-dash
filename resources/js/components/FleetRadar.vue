@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { router } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import {
+    CELL_H,
+    GLYPH,
+    hash,
+    useAsciiCanvas,
+} from '@/composables/useAsciiCanvas';
 import { statusMeta, statusOrder } from '@/lib/status';
 import type { Status } from '@/types';
 
@@ -18,25 +24,14 @@ export type RadarBlip = {
  * An ASCII radar, after ../ascii-sharks: a canvas cell grid, glyph ramps for light, pointer play,
  * paused off-screen and a still frame for reduced motion. Each item is a blip, closer to the
  * centre the worse its status; the sweep lights blips up, and red ones kick the heartbeat line,
- * the same one as in the logo. Every page but settings shows one over its own items.
+ * the same one as in the logo.
  */
-const props = defineProps<{
-    blips: RadarBlip[];
-    /** Readout heading, e.g. "fleet scan". */
-    title: string;
-    /** Short plural for the count, e.g. "svc". */
-    unit: string;
-    /** Readout names per status, when red/yellow/… doesn't fit the page. */
-    labels?: Partial<Record<Status, string>>;
-}>();
+const props = defineProps<{ blips: RadarBlip[] }>();
 
 const canvas = ref<HTMLCanvasElement>();
 const hovered = ref<number | null>(null);
 
 const RAMP = ' .:-=+*#%@';
-const FONT_SIZE = 12;
-const CELL_H = 14;
-const TRACK = 2; // extra px between columns
 const PAD = 2; // empty columns at the left and right edges
 const GAP = 4; // columns between the scope and the readout
 const TURN = 4; // seconds per sweep
@@ -46,25 +41,6 @@ const BAND: Record<Status, number> = {
     green: 0.74,
     unknown: 0.92,
 };
-const GLYPH: Record<Status, string> = {
-    red: '@',
-    yellow: '*',
-    green: 'o',
-    unknown: '?',
-};
-const CSS_VAR: Record<Status, string> = {
-    red: '--status-critical',
-    yellow: '--status-warning',
-    green: '--status-ok',
-    unknown: '--status-unknown',
-};
-
-function hash(a: number, b = 0, c = 0): number {
-    let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0;
-    h = Math.imul(h ^ (h >>> 13), 1274126177);
-
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-}
 
 const blips = computed(() =>
     props.blips.map((blip) => ({
@@ -74,7 +50,6 @@ const blips = computed(() =>
     })),
 );
 
-const label = (status: Status) => props.labels?.[status] ?? status;
 const target = computed(
     () => blips.value.find((blip) => blip.id === hovered.value)?.href,
 );
@@ -91,10 +66,10 @@ const counts = computed(
 
 const summary = computed(
     () =>
-        `${props.title}: ${statusOrder
+        `Fleet radar: ${statusOrder
             .map(
                 (status) =>
-                    `${counts.value[status]} ${props.labels?.[status] ?? statusMeta[status].label.toLowerCase()}`,
+                    `${counts.value[status]} ${statusMeta[status].label.toLowerCase()}`,
             )
             .join(', ')}. Closer to the centre means worse.${
             props.blips.some((blip) => blip.href)
@@ -103,20 +78,6 @@ const summary = computed(
         }`,
 );
 
-let ctx: CanvasRenderingContext2D | null = null;
-let width = 0;
-let height = 0;
-let cellW = 7;
-let raf = 0;
-let last = 0;
-let time = 0;
-let visible = true;
-let colors = {
-    ink: '#2b2b2b',
-    muted: '#706d68',
-    brand: '#3b71ca',
-    status: {} as Record<Status, string>,
-};
 const pointer = { x: -1, y: -1, active: false };
 const lit = new Map<number, number>(); // service id -> time it was last lit
 const pings: { x: number; y: number; at: number }[] = [];
@@ -127,40 +88,27 @@ let samples = 0;
 let contact: number | null = null;
 let passes = 0;
 
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-
-function readColors() {
-    const style = getComputedStyle(document.documentElement);
-    const read = (name: string) => style.getPropertyValue(name).trim();
-    colors = {
-        ink: read('--foreground'),
-        muted: read('--muted-foreground'),
-        brand: read('--brand'),
-        status: Object.fromEntries(
-            statusOrder.map((status) => [status, read(CSS_VAR[status])]),
-        ) as Record<Status, string>,
-    };
-}
+let time = 0;
 
 /** The scope is centred on a cell, so the rings and crosshair come out symmetric on the grid. */
 function geometry() {
-    const rows = Math.floor(height / CELL_H);
+    const rows = Math.floor(g.height / CELL_H);
     const centreRow = Math.floor(rows / 2);
-    const r = Math.max(24, Math.min((centreRow - 1) * CELL_H, width * 0.28));
-    const centreCol = PAD + Math.ceil(r / cellW);
+    const r = Math.max(24, Math.min((centreRow - 1) * CELL_H, g.width * 0.28));
+    const centreCol = PAD + Math.ceil(r / g.cellW);
 
     return {
-        cx: (centreCol + 0.5) * cellW,
+        cx: (centreCol + 0.5) * g.cellW,
         cy: (centreRow + 0.5) * CELL_H,
         r,
         rows,
-        readout: centreCol + Math.ceil(r / cellW) + GAP,
+        readout: centreCol + Math.ceil(r / g.cellW) + GAP,
     };
 }
 
 /** Columns that can hold text, leaving the right-hand padding. */
 function usableCols(): number {
-    return Math.floor(width / cellW) - PAD;
+    return Math.floor(g.width / g.cellW) - PAD;
 }
 
 function blipPosition(blip: (typeof blips.value)[number]) {
@@ -170,49 +118,6 @@ function blipPosition(blip: (typeof blips.value)[number]) {
         x: cx + Math.cos(blip.angle) * blip.radius * r,
         y: cy + Math.sin(blip.angle) * blip.radius * r,
     };
-}
-
-function resize() {
-    const el = canvas.value;
-
-    if (!el || !ctx) {
-        return;
-    }
-
-    const rect = el.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    width = rect.width;
-    height = rect.height;
-    el.width = Math.round(width * dpr);
-    el.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = `${FONT_SIZE}px ${getComputedStyle(el).fontFamily}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    cellW = (ctx.measureText('M').width || 7) + TRACK;
-    draw();
-}
-
-function glyph(
-    text: string,
-    col: number,
-    row: number,
-    color: string,
-    alpha: number,
-) {
-    ctx!.globalAlpha = Math.min(1, alpha);
-    ctx!.fillStyle = color;
-
-    // One character per cell, so text lines up with the scope and with each other.
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] !== ' ') {
-            ctx!.fillText(
-                text[i],
-                (col + i + 0.5) * cellW,
-                (row + 0.5) * CELL_H,
-            );
-        }
-    }
 }
 
 /** Cut text to what fits right of a column. */
@@ -267,22 +172,17 @@ function step(dt: number) {
     }
 }
 
-function draw() {
-    if (!ctx || width < 1) {
-        return;
-    }
-
-    ctx.clearRect(0, 0, width, height);
+function render() {
     const { cx, cy, r, rows, readout } = geometry();
     const sweep = (time / TURN) * Math.PI * 2;
-    const firstCol = Math.floor((cx - r) / cellW);
-    const lastCol = Math.ceil((cx + r) / cellW);
+    const firstCol = Math.floor((cx - r) / g.cellW);
+    const lastCol = Math.ceil((cx + r) / g.cellW);
     const tick = Math.floor(time * 8);
 
     // 1. The scope: rings, crosshair, phosphor trail behind the sweep, and the pointer's lens.
     for (let row = 0; row < rows; row++) {
         for (let col = firstCol; col <= lastCol; col++) {
-            const x = (col + 0.5) * cellW;
+            const x = (col + 0.5) * g.cellW;
             const y = (row + 0.5) * CELL_H;
             const dx = x - cx;
             const dy = y - cy;
@@ -318,7 +218,7 @@ function draw() {
             }
 
             if (light > 0.06) {
-                glyph(
+                g.glyph(
                     RAMP[
                         Math.min(
                             RAMP.length - 1,
@@ -327,24 +227,27 @@ function draw() {
                     ],
                     col,
                     row,
-                    colors.brand,
+                    g.colors.brand,
                     0.25 + light,
                 );
             } else if (
                 Math.abs(d - 1) < CELL_H / (2 * r) ||
                 [0.25, 0.5, 0.75].some((ring) => Math.abs(d - ring) < 0.035)
             ) {
-                glyph(d > 0.98 ? ':' : '.', col, row, colors.muted, 0.55);
-            } else if (Math.abs(dx) < cellW / 2 || Math.abs(dy) < CELL_H / 2) {
-                glyph(
-                    Math.abs(dx) < cellW / 2
+                g.glyph(d > 0.98 ? ':' : '.', col, row, g.colors.muted, 0.55);
+            } else if (
+                Math.abs(dx) < g.cellW / 2 ||
+                Math.abs(dy) < CELL_H / 2
+            ) {
+                g.glyph(
+                    Math.abs(dx) < g.cellW / 2
                         ? Math.abs(dy) < CELL_H / 2
                             ? '+'
                             : '|'
                         : '-',
                     col,
                     row,
-                    colors.muted,
+                    g.colors.muted,
                     0.3,
                 );
             }
@@ -354,22 +257,24 @@ function draw() {
     // 2. Blips: lit by the sweep and fading over a turn; red ones ripple.
     for (const blip of blips.value) {
         const { x, y } = blipPosition(blip);
-        const col = Math.floor(x / cellW);
+        const col = Math.floor(x / g.cellW);
         const row = Math.floor(y / CELL_H);
         const glow = reducedMotion.matches
             ? 1
             : Math.exp(-(time - (lit.get(blip.id) ?? -99)) / (TURN * 0.6));
         const isHovered = hovered.value === blip.id;
-        const color = colors.status[blip.status];
+        const color = g.colors.status[blip.status];
 
         if (blip.status === 'red' && !reducedMotion.matches) {
             const ripple = ((time * 1.5 + hash(blip.id)) % 1) * 3 + 1;
 
             for (let a = 0; a < 12; a++) {
                 const angle = (a / 12) * Math.PI * 2;
-                glyph(
+                g.glyph(
                     '.',
-                    Math.floor((x + Math.cos(angle) * ripple * cellW) / cellW),
+                    Math.floor(
+                        (x + Math.cos(angle) * ripple * g.cellW) / g.cellW,
+                    ),
                     Math.floor(
                         (y + Math.sin(angle) * ripple * CELL_H * 0.8) / CELL_H,
                     ),
@@ -379,11 +284,11 @@ function draw() {
             }
         }
 
-        glyph(GLYPH[blip.status], col, row, color, 0.45 + glow);
+        g.glyph(GLYPH[blip.status], col, row, color, 0.45 + glow);
 
         if (isHovered) {
-            glyph('[', col - 1, row, colors.ink, 1);
-            glyph(']', col + 1, row, colors.ink, 1);
+            g.glyph('[', col - 1, row, g.colors.ink, 1);
+            g.glyph(']', col + 1, row, g.colors.ink, 1);
         }
 
         if (isHovered || glow > 0.35) {
@@ -392,13 +297,8 @@ function draw() {
                 Math.max(0, Math.min(14, readout - col - 3)),
             );
             // Knock the scope out behind the name so it stays readable.
-            ctx.clearRect(
-                (col + 2) * cellW,
-                row * CELL_H,
-                label.length * cellW,
-                CELL_H,
-            );
-            glyph(label, col + 2, row, colors.ink, isHovered ? 1 : glow);
+            g.clear(col + 2, row, label.length);
+            g.glyph(label, col + 2, row, g.colors.ink, isHovered ? 1 : glow);
         }
     }
 
@@ -409,45 +309,39 @@ function draw() {
     const degrees = String(
         Math.floor(((sweep * 180) / Math.PI) % 360),
     ).padStart(3, '0');
-    glyph(
-        fit(`${props.title} · ${props.blips.length} ${props.unit}`, left),
+    g.glyph(
+        fit(`fleet scan · ${props.blips.length} svc`, left),
         left,
         1,
-        colors.ink,
+        g.colors.ink,
         1,
     );
-    glyph(
+    g.glyph(
         `sweep ${degrees}° · pass ${String(passes).padStart(3, '0')}`,
         left,
         2,
-        colors.muted,
+        g.colors.muted,
         1,
     );
 
     statusOrder.forEach((status, index) => {
         const filled = Math.round((counts.value[status] / total) * barCells);
         const row = 4 + index;
-        glyph(GLYPH[status], left, row, colors.status[status], 1);
-        glyph(
-            label(status).slice(0, 7).padEnd(8),
-            left + 2,
-            row,
-            colors.ink,
-            1,
-        );
-        glyph('#'.repeat(filled), left + 10, row, colors.status[status], 1);
-        glyph(
+        g.glyph(GLYPH[status], left, row, g.colors.status[status], 1);
+        g.glyph(status.padEnd(8), left + 2, row, g.colors.ink, 1);
+        g.glyph('#'.repeat(filled), left + 10, row, g.colors.status[status], 1);
+        g.glyph(
             '.'.repeat(barCells - filled),
             left + 10 + filled,
             row,
-            colors.muted,
+            g.colors.muted,
             0.6,
         );
-        glyph(
+        g.glyph(
             String(counts.value[status]).padStart(3),
             left + 10 + barCells,
             row,
-            colors.ink,
+            g.colors.ink,
             1,
         );
     });
@@ -457,29 +351,35 @@ function draw() {
     );
 
     if (focus) {
-        glyph('>', left, 9, colors.status[focus.status], 1);
-        glyph(
+        g.glyph('>', left, 9, g.colors.status[focus.status], 1);
+        g.glyph(
             fit(
-                `${focus.name.slice(0, 12)} ${label(focus.status)}${focus.detail ? ` · ${focus.detail}` : ''}`,
+                `${focus.name.slice(0, 12)} ${focus.status}${focus.detail ? ` · ${focus.detail}` : ''}`,
                 left + 2,
             ),
             left + 2,
             9,
-            colors.ink,
+            g.colors.ink,
             1,
         );
     } else {
-        glyph(fit('> no contacts, all clear', left), left, 9, colors.muted, 1);
+        g.glyph(
+            fit('> no contacts, all clear', left),
+            left,
+            9,
+            g.colors.muted,
+            1,
+        );
     }
 
-    glyph(
+    g.glyph(
         fit(
             target.value ? '  click to open' : '  click the scope to ping',
             left,
         ),
         left,
         10,
-        colors.muted,
+        g.colors.muted,
         0.8,
     );
 
@@ -488,10 +388,12 @@ function draw() {
     ecg.forEach((value, index) => {
         const previous = ecg[index - 1] ?? 0;
         const color =
-            Math.max(value, previous) > 2 ? colors.status.red : colors.brand;
+            Math.max(value, previous) > 2
+                ? g.colors.status.red
+                : g.colors.brand;
 
         if (value === previous) {
-            glyph('-', left + index, base - value, color, 0.9);
+            g.glyph('-', left + index, base - value, color, 0.9);
 
             return;
         }
@@ -504,7 +406,7 @@ function draw() {
             up ? v <= value : v >= value;
             v += up ? 1 : -1
         ) {
-            glyph(
+            g.glyph(
                 up ? '/' : '\\',
                 left + index,
                 base - (up ? v : v + 1),
@@ -513,41 +415,24 @@ function draw() {
             );
         }
     });
-
-    ctx.globalAlpha = 1;
 }
 
-function frame(now: number) {
-    const dt = Math.min(0.1, (now - last) / 1000);
-    last = now;
-    step(dt);
-    draw();
-    raf = requestAnimationFrame(frame);
+/** Still frame: sweep parked, every blip lit, a flat heartbeat. */
+function still() {
+    time = TURN * 0.3;
+    ecg = Array(80).fill(0);
 }
 
-function schedule() {
-    cancelAnimationFrame(raf);
-
-    if (!visible || document.hidden || reducedMotion.matches) {
-        if (reducedMotion.matches) {
-            // Still frame: sweep parked, every blip lit, a flat heartbeat.
-            time = TURN * 0.3;
-            ecg = Array(80).fill(0);
-            draw();
-        }
-
-        return;
-    }
-
-    last = performance.now();
-    raf = requestAnimationFrame(frame);
-}
-
-function local(event: PointerEvent) {
-    const rect = canvas.value!.getBoundingClientRect();
-
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-}
+const {
+    grid: g,
+    draw,
+    local,
+    reducedMotion,
+} = useAsciiCanvas(canvas, {
+    step,
+    draw: render,
+    still,
+});
 
 function onMove(event: PointerEvent) {
     const { x, y } = local(event);
@@ -605,49 +490,6 @@ function onClick(event: PointerEvent) {
         }
     }
 }
-
-let resizeObserver: ResizeObserver;
-let intersectionObserver: IntersectionObserver;
-let themeObserver: MutationObserver;
-
-function onVisibility() {
-    schedule();
-}
-
-onMounted(() => {
-    ctx = canvas.value!.getContext('2d');
-    readColors();
-    resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(canvas.value!);
-    intersectionObserver = new IntersectionObserver(([entry]) => {
-        visible = entry.isIntersecting;
-        schedule();
-    });
-    intersectionObserver.observe(canvas.value!);
-    // Light and dark mode swap the tokens on <html>.
-    themeObserver = new MutationObserver(() => {
-        readColors();
-        draw();
-    });
-    themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'data-theme'],
-    });
-    reducedMotion.addEventListener('change', schedule);
-    document.addEventListener('visibilitychange', onVisibility);
-    // Canvas text can't trigger a webfont load, so redraw once Courier Prime is in.
-    document.fonts?.ready.then(resize);
-    schedule();
-});
-
-onBeforeUnmount(() => {
-    cancelAnimationFrame(raf);
-    resizeObserver.disconnect();
-    intersectionObserver.disconnect();
-    themeObserver.disconnect();
-    reducedMotion.removeEventListener('change', schedule);
-    document.removeEventListener('visibilitychange', onVisibility);
-});
 
 watch(blips, () => draw());
 </script>

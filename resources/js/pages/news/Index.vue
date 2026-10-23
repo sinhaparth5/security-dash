@@ -2,8 +2,7 @@
 import { Head, usePoll } from '@inertiajs/vue3';
 import { Newspaper, Sparkles } from '@lucide/vue';
 import { computed, reactive } from 'vue';
-import FleetRadar from '@/components/FleetRadar.vue';
-import type { RadarBlip } from '@/components/FleetRadar.vue';
+import NewsWire from '@/components/ascii/NewsWire.vue';
 import { lastSeen } from '@/lib/format';
 import { index as newsIndex } from '@/routes/news';
 import type { NewsArticle } from '@/types';
@@ -22,34 +21,18 @@ const props = defineProps<{
     checkedAt: string | null;
 }>();
 
-// Jev's importance as a status: the same cut-offs as the act now / important badges.
-const radarBlips = computed<RadarBlip[]>(() =>
-    [
-        ...new Map(
-            [...props.featured, ...props.important, ...props.latest].map(
-                (article) => [article.id, article],
-            ),
-        ).values(),
-    ].map((article) => ({
-        id: article.id,
-        name: article.title,
-        status:
-            article.importance === null
-                ? 'unknown'
-                : article.importance >= 2.5
-                  ? 'red'
-                  : article.importance >= 1.5
-                    ? 'yellow'
-                    : 'green',
-        detail: article.source,
-        href: article.url,
-    })),
-);
-
 // Feeds refresh hourly; checking every five minutes picks up a new run soon after it lands.
 usePoll(300_000);
 
 // Publisher images break now and then; fall back to the placeholder instead of a broken icon.
+const articles = computed(() => [
+    ...new Map(
+        [...props.featured, ...props.important, ...props.latest].map(
+            (article) => [article.id, article],
+        ),
+    ).values(),
+]);
+
 const brokenImages = reactive(new Set<number>());
 
 function hasImage(article: NewsArticle): boolean {
@@ -105,18 +88,7 @@ function rank(
             </p>
         </header>
 
-        <FleetRadar
-            v-if="radarBlips.length > 0"
-            :blips="radarBlips"
-            title="news scan"
-            unit="stories"
-            :labels="{
-                red: 'act now',
-                yellow: 'important',
-                green: 'routine',
-                unknown: 'unranked',
-            }"
-        />
+        <NewsWire v-if="articles.length > 0" :articles="articles" />
 
         <section
             v-if="!featured.length && !important.length && !latest.length"

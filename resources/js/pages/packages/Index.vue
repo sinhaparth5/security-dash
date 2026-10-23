@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { Form, Head, Link } from '@inertiajs/vue3';
 import { Package, Search } from '@lucide/vue';
-import { computed } from 'vue';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
-import FleetRadar from '@/components/FleetRadar.vue';
-import type { RadarBlip } from '@/components/FleetRadar.vue';
+import BlastRadius from '@/components/ascii/BlastRadius.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,21 +18,10 @@ defineOptions({
     },
 });
 
-const props = defineProps<{
+defineProps<{
     search: string;
     packages: FleetPackage[];
 }>();
-
-// ponytail: packages have no id, so blips are keyed by list position and move when the list changes.
-const radarBlips = computed<RadarBlip[]>(() =>
-    props.packages.map((pkg, index) => ({
-        id: index + 1,
-        name: pkg.name,
-        status: pkg.status,
-        detail: `${pkg.services_count} svc`,
-        href: packagesIndex.url({ query: { q: pkg.name } }),
-    })),
-);
 </script>
 
 <template>
@@ -52,12 +39,7 @@ const radarBlips = computed<RadarBlip[]>(() =>
             </p>
         </header>
 
-        <FleetRadar
-            v-if="radarBlips.length > 0"
-            :blips="radarBlips"
-            title="package scan"
-            unit="pkgs"
-        />
+        <BlastRadius v-if="packages.length > 0" :packages="packages" />
 
         <Form
             v-bind="packagesIndex.form()"

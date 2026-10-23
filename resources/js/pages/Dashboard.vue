@@ -445,12 +445,7 @@ function dependencyBreakdown(service: MonitoredService) {
                     </Button>
                 </div>
             </div>
-            <FleetRadar
-                v-if="radarBlips.length > 0"
-                :blips="radarBlips"
-                title="fleet scan"
-                unit="svc"
-            />
+            <FleetRadar v-if="radarBlips.length > 0" :blips="radarBlips" />
         </header>
 
         <div
