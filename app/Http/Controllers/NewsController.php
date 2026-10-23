@@ -24,6 +24,11 @@ class NewsController extends Controller
      */
     public function index(Jev $jev): Response
     {
+        // A fresh install would wait up to an hour for the scheduler; fetch on the first visit instead.
+        if (! Cache::has(FetchSecurityNews::CHECKED_AT)) {
+            FetchSecurityNews::dispatch();
+        }
+
         $articles = NewsArticle::where('published_at', '>=', now()->subDays(14))->latest('published_at')->limit(200)->get();
 
         [$important, $latest] = $articles->partition(fn (NewsArticle $article) => $article->importance !== null && $article->importance >= self::IMPORTANT);

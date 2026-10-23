@@ -7,6 +7,7 @@ use App\Models\NewsArticle;
 use App\Models\User;
 use App\Upstream\SecurityNews;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -147,4 +148,16 @@ test('news is fetched every hour and publisher images are allowed by the csp', f
 
     $csp = $this->actingAs(User::factory()->create())->get(route('news.index'))->headers->get('Content-Security-Policy');
     expect($csp)->toContain("img-src 'self' data: https:");
+});
+
+test('the first visit fetches news instead of waiting for the next hourly run', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->get(route('news.index'))->assertOk();
+    Queue::assertPushed(FetchSecurityNews::class, 1);
+
+    Cache::forever(FetchSecurityNews::CHECKED_AT, now()->toIso8601String());
+    $this->actingAs($user)->get(route('news.index'))->assertOk();
+    Queue::assertPushed(FetchSecurityNews::class, 1);
 });
