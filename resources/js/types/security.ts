@@ -26,7 +26,6 @@ export type MonitoredService = {
     status: Status;
     last_ping_at: string | null;
     is_stale: boolean;
-    tokens: ServiceToken[];
     dependencies: Dependency[];
 };
 
@@ -35,6 +34,23 @@ export type IssuedServiceToken = {
     environment: string;
     token: string;
     existing: boolean;
+};
+
+export type ServiceSummary = {
+    id: number;
+    name: string;
+    environment: string;
+    status: Status;
+    tokens_count: number;
+};
+
+export type ServiceConnectionDetails = {
+    id: number;
+    name: string;
+    environment: string;
+    status: Status;
+    last_ping_at: string | null;
+    tokens: ServiceToken[];
 };
 
 export type ServiceToken = {

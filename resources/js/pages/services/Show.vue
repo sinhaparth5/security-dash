@@ -1,18 +1,8 @@
 <script setup lang="ts">
-import { Head, Link, router, usePoll } from '@inertiajs/vue3';
-import {
-    ArrowLeft,
-    Clock,
-    ExternalLink,
-    KeyRound,
-    Plus,
-    Trash2,
-    TriangleAlert,
-    Wrench,
-} from '@lucide/vue';
-import { computed, ref } from 'vue';
-import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
-import ServiceConnection from '@/components/ServiceConnection.vue';
+import { Head, Link, usePoll } from '@inertiajs/vue3';
+import { ArrowLeft, Clock, ExternalLink, KeyRound, Wrench } from '@lucide/vue';
+import { computed } from 'vue';
+import TokenController from '@/actions/App/Http/Controllers/TokenController';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,46 +45,6 @@ const groups = computed(() =>
     })),
 );
 
-// Held locally: flash data is gone after the next poll, and the token is never shown again.
-const issuedToken = ref<string | null>(null);
-const issuing = ref(false);
-
-// store() issues an extra token for an existing service, so old tokens keep working until revoked.
-function issueToken(): void {
-    router.post(
-        ServiceController.store.url(),
-        { name: props.service.name, environment: props.service.environment },
-        {
-            preserveScroll: true,
-            preserveState: true,
-            only: ['service'],
-            onStart: () => (issuing.value = true),
-            onFinish: () => (issuing.value = false),
-            onFlash: (flash) =>
-                (issuedToken.value = flash.serviceToken?.token ?? null),
-        },
-    );
-}
-
-const revoking = ref<number | null>(null);
-
-function revoke(token: number): void {
-    router.delete(
-        ServiceController.revokeToken.url({ service: props.service.id, token }),
-        {
-            preserveScroll: true,
-            preserveState: true,
-            only: ['service'],
-            onBefore: () =>
-                confirm(
-                    `Revoke token #${token} for ${props.service.name}? Anything still using it gets 401 from its next request.`,
-                ),
-            onStart: () => (revoking.value = token),
-            onFinish: () => (revoking.value = null),
-        },
-    );
-}
-
 const severityClass: Record<string, string> = {
     CRITICAL: 'bg-status-critical text-status-critical-foreground',
     HIGH: 'bg-status-critical/15 text-status-critical dark:bg-status-critical/35 dark:text-foreground',
@@ -131,6 +81,18 @@ function advisoryUrl(osvId: string): string | null {
                     service.environment
                 }}</Badge>
                 <StatusBadge :status="service.status" />
+                <Button variant="outline" size="sm" class="ml-auto" as-child>
+                    <Link
+                        :href="
+                            TokenController.index({
+                                query: { service: service.id },
+                            })
+                        "
+                    >
+                        <KeyRound aria-hidden="true" />
+                        Connection and tokens
+                    </Link>
+                </Button>
             </div>
             <p
                 class="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
@@ -247,7 +209,11 @@ function advisoryUrl(osvId: string): string | null {
                         <div
                             class="mt-1 flex flex-wrap items-center gap-x-1.5 font-mono text-sm"
                         >
-                            <span>{{ dependency.version }}</span>
+                            <span
+                                class="font-medium"
+                                :class="statusMeta.red.text"
+                                >{{ dependency.version }}</span
+                            >
                             <template
                                 v-if="
                                     dependency.latest_version &&
@@ -365,9 +331,11 @@ function advisoryUrl(osvId: string): string | null {
                                     class="hidden font-mono text-xs text-muted-foreground sm:table-cell"
                                     >{{ dependency.ecosystem }}</TableCell
                                 >
-                                <TableCell class="font-mono text-sm">{{
-                                    dependency.version
-                                }}</TableCell>
+                                <TableCell
+                                    class="font-mono text-sm font-medium"
+                                    :class="statusMeta[group.status].text"
+                                    >{{ dependency.version }}</TableCell
+                                >
                                 <TableCell
                                     class="pr-4 font-mono text-sm"
                                     :class="
@@ -385,96 +353,5 @@ function advisoryUrl(osvId: string): string | null {
                 </div>
             </section>
         </template>
-
-        <section
-            aria-labelledby="connection-heading"
-            class="flex flex-col gap-4"
-        >
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2
-                    id="connection-heading"
-                    class="flex items-center gap-2 text-lg font-semibold"
-                >
-                    <KeyRound
-                        class="size-5 text-muted-foreground"
-                        aria-hidden="true"
-                    />
-                    Connection and API tokens
-                    <span
-                        class="font-normal text-muted-foreground tabular-nums"
-                        >{{ service.tokens.length }}</span
-                    >
-                </h2>
-                <Button :disabled="issuing" @click="issueToken">
-                    <Plus aria-hidden="true" />
-                    {{ issuing ? 'Issuing token…' : 'Issue new token' }}
-                </Button>
-            </div>
-            <p class="max-w-3xl text-sm text-muted-foreground">
-                Every service posts to the same URLs. The bearer token is what
-                identifies the caller as
-                <span class="font-mono">{{ service.name }}</span> ({{
-                    service.environment
-                }}). To rotate, issue a new token, deploy it, then revoke the
-                old one once its "last used" stops moving.
-            </p>
-
-            <div
-                v-if="issuedToken"
-                role="alert"
-                class="flex gap-2.5 rounded-lg bg-status-warning-soft p-3 text-sm text-status-warning-foreground dark:text-status-warning"
-            >
-                <TriangleAlert
-                    class="mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                />
-                <p>
-                    Copy the new token now and store it as this service's
-                    secret. It won't be shown again.
-                </p>
-            </div>
-
-            <div class="rounded-xl border bg-card p-4 shadow-xs">
-                <ServiceConnection :name="service.name" :token="issuedToken" />
-            </div>
-
-            <p
-                v-if="service.tokens.length === 0"
-                class="text-sm text-muted-foreground"
-            >
-                No active tokens. This service can't report until you issue one.
-            </p>
-            <ul v-else class="grid gap-2 md:grid-cols-2">
-                <li
-                    v-for="token in service.tokens"
-                    :key="token.id"
-                    class="flex items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm"
-                >
-                    <div>
-                        <div class="font-mono font-medium">#{{ token.id }}</div>
-                        <div class="text-xs text-muted-foreground">
-                            Created
-                            {{ lastSeen(token.created_at).toLowerCase() }}
-                            · last used
-                            {{
-                                token.last_used_at
-                                    ? lastSeen(token.last_used_at).toLowerCase()
-                                    : 'never'
-                            }}
-                        </div>
-                    </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        class="text-status-critical hover:text-status-critical"
-                        :disabled="revoking === token.id"
-                        @click="revoke(token.id)"
-                    >
-                        <Trash2 aria-hidden="true" />
-                        {{ revoking === token.id ? 'Revoking…' : 'Revoke' }}
-                    </Button>
-                </li>
-            </ul>
-        </section>
     </div>
 </template>

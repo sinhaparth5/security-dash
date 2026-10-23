@@ -65,7 +65,7 @@ npm run check:fix                                # fix frontend formatting and l
 
 On the dashboard, click **Register service** and enter a name and environment. Patchwatch creates the service and shows its token (once), the heartbeat and image-scan URLs, and copyable heartbeat and Trivy image-scan examples. Store the token as a secret in the service's environment. Registering an existing name and environment issues an extra token and leaves the old ones working.
 
-To rotate a token, open the service from the dashboard and click **Issue new token** under **Connection and API tokens**, deploy the new token, then click **Revoke** on the old one. The same section shows the heartbeat and image-scan URLs. Each token shows when it was created and last used, so you can tell which one is live. A revoked token gets `401` from its next request.
+To rotate a token, open **Tokens** in the sidebar, select the service, click **Issue new token**, deploy the new token, then click **Revoke** on the old one. The same page shows the heartbeat and image-scan URLs. Each token shows when it was created and last used, so you can tell which one is live. A revoked token gets `401` from its next request.
 
 From a shell, `php artisan service:token billing-api production` does the same (on the VPS: `docker exec patchwatch-web php artisan service:token …`).
 

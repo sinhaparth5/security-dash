@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\GithubLoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ServiceController;
+use App\Http\Controllers\TokenController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/dashboard')->name('home');
@@ -21,7 +22,9 @@ Route::middleware('auth')->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::get('services/{service}', [ServiceController::class, 'show'])->name('services.show');
     Route::post('services', [ServiceController::class, 'store'])->middleware('throttle:20,1')->name('services.store');
-    Route::delete('services/{service}/tokens/{token}', [ServiceController::class, 'revokeToken'])->name('services.tokens.destroy');
+    Route::get('tokens', [TokenController::class, 'index'])->name('tokens.index');
+    Route::post('services/{service}/tokens', [TokenController::class, 'store'])->middleware('throttle:20,1')->name('services.tokens.store');
+    Route::delete('services/{service}/tokens/{token}', [TokenController::class, 'destroy'])->name('services.tokens.destroy');
 });
 
 require __DIR__.'/settings.php';

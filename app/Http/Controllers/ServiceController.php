@@ -44,14 +44,4 @@ class ServiceController extends Controller
 
         return back();
     }
-
-    /**
-     * Revoke one of a service's tokens, e.g. after a leak. Takes effect on its next request.
-     */
-    public function revokeToken(Service $service, int $token): RedirectResponse
-    {
-        abort_unless($service->tokens()->whereKey($token)->delete() > 0, 404);
-
-        return back();
-    }
 }
