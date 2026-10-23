@@ -8,6 +8,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use stdClass;
 
 /**
  * Opens a pull request that bumps one dependency in the service's repository.
@@ -34,8 +35,8 @@ class GitHub
         $base = $api->get("repos/{$repository}")->throw()->json('default_branch');
         $head = $api->get("repos/{$repository}/git/ref/heads/{$base}")->throw()->json('object.sha');
 
-        [$path, $file, $updated] = $this->findManifest($api, $repository, $head, $manifest, $dependency, $version)
-            ?? throw new RuntimeException("{$dependency->name} is not a direct dependency in any {$manifest} in {$repository}, so there is nothing to bump.");
+        [$path, $file, $updated, $overridden, $refresh] = $this->findManifest($api, $repository, $head, $manifest, $dependency, $version)
+            ?? throw new RuntimeException("Found no {$manifest} in {$repository} to change for {$dependency->name}.");
 
         $branch = 'patchwatch/'.preg_replace('/[^A-Za-z0-9._-]+/', '-', ltrim($dependency->name, '@')).'-'.$version;
 
@@ -45,7 +46,7 @@ class GitHub
             throw $e->response->status() === 422 ? new RuntimeException("Branch {$branch} already exists: a PR for this upgrade is probably open.") : $e;
         }
 
-        $title = "Bump {$dependency->name} from {$dependency->version} to {$version}";
+        $title = ($overridden ? 'Override' : 'Bump')." {$dependency->name} from {$dependency->version} to {$version}";
 
         $api->put("repos/{$repository}/contents/{$path}", [
             'message' => $title,
@@ -54,18 +55,16 @@ class GitHub
             'branch' => $branch,
         ])->throw();
 
-        $refresh = $dependency->ecosystem === Ecosystem::Npm ? 'npm install' : 'go mod tidy';
-
         return $api->post("repos/{$repository}/pulls", [
             'title' => $title,
             'head' => $branch,
             'base' => $base,
             'body' => implode("\n", [
-                "Patchwatch flagged `{$dependency->name}@{$dependency->version}` in this service. This bumps it to `{$version}`, which fixes:",
+                "Patchwatch flagged `{$dependency->name}@{$dependency->version}` in this service. This ".($overridden ? "pins the transitive dependency with an override in `{$path}`" : 'bumps it').", to `{$version}`, which fixes:",
                 '',
                 ...array_map(fn (string $id) => "- {$id}", $advisoryIds),
                 '',
-                "Only `{$path}` is changed. Run `{$refresh}` on this branch and commit the result so the lockfile matches.",
+                "Only `{$path}` is changed. Run {$refresh} on this branch and commit the result so the lockfile matches.",
             ]),
         ])->throw()->json('html_url');
     }
@@ -94,30 +93,82 @@ class GitHub
     }
 
     /**
-     * The first manifest, shallowest first, that lists the dependency directly: [path, file, updated content].
+     * The package.json with an override pinning a transitive dependency for this package manager,
+     * or null when the manifest is not a JSON object.
+     */
+    public static function override(string $manifest, string $tool, string $name, string $version): ?string
+    {
+        $data = json_decode($manifest);
+
+        if (! $data instanceof stdClass) {
+            return null;
+        }
+
+        // pnpm reads pnpm.overrides, yarn reads resolutions, npm and bun read overrides.
+        $pnpm = $tool === 'pnpm' ? $data->pnpm ??= new stdClass : null;
+        $target = match ($tool) {
+            'pnpm' => $pnpm->overrides ??= new stdClass,
+            'yarn' => $data->resolutions ??= new stdClass,
+            default => $data->overrides ??= new stdClass,
+        };
+        $target->{$name} = '^'.Releases::normalize($version);
+
+        $json = (string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $indent = preg_match('/^\{\R([ \t]+)"/', $manifest, $m) ? $m[1] : '  ';
+        $json = (string) preg_replace_callback('/^(?: {4})+/m', fn (array $spaces) => str_repeat($indent, intdiv(strlen($spaces[0]), 4)), $json);
+
+        return $json.(str_ends_with($manifest, "\n") ? "\n" : '');
+    }
+
+    /**
+     * The first manifest, shallowest first, that lists the dependency directly. Failing that, an npm
+     * dependency is transitive, so the shallowest package.json gets an override instead.
      *
-     * @return array{string, array{sha: string, content: string}, string}|null
+     * @return array{string, array{sha: string, content: string}, string, bool, string}|null
      */
     private function findManifest(PendingRequest $api, string $repository, string $head, string $manifest, Dependency $dependency, string $version): ?array
     {
         // ponytail: one recursive tree listing, first 20 candidates; GitHub truncates trees past ~100k entries.
-        $paths = $api->get("repos/{$repository}/git/trees/{$head}", ['recursive' => 1])->throw()->collect('tree')
+        $blobs = $api->get("repos/{$repository}/git/trees/{$head}", ['recursive' => 1])->throw()->collect('tree')
             ->where('type', 'blob')
             ->pluck('path')
-            ->filter(fn (string $path) => basename($path) === $manifest && ! preg_match('#(^|/)(node_modules|vendor)/#', $path))
+            ->reject(fn (string $path) => preg_match('#(^|/)(node_modules|vendor)/#', $path) === 1);
+        $paths = $blobs->filter(fn (string $path) => basename($path) === $manifest)
             ->sortBy(fn (string $path) => substr_count($path, '/'))
             ->take(20);
+        $npm = $dependency->ecosystem === Ecosystem::Npm;
+        $tool = function (string $path) use ($blobs) {
+            $dir = dirname($path) === '.' ? '' : dirname($path).'/';
+
+            return match (true) {
+                $blobs->contains($dir.'pnpm-lock.yaml') => 'pnpm',
+                $blobs->contains($dir.'yarn.lock') => 'yarn',
+                $blobs->contains($dir.'bun.lock'), $blobs->contains($dir.'bun.lockb') => 'bun',
+                default => 'npm',
+            };
+        };
+        $refresh = fn (string $path) => '`'.($npm ? $tool($path).' install' : 'go mod tidy').'`'.(dirname($path) === '.' ? '' : ' in `'.dirname($path).'`');
+        $files = [];
 
         foreach ($paths as $path) {
-            $file = $api->get("repos/{$repository}/contents/{$path}", ['ref' => $head])->throw()->json();
+            $file = $files[$path] = $api->get("repos/{$repository}/contents/{$path}", ['ref' => $head])->throw()->json();
             $updated = self::bump($dependency->ecosystem, base64_decode($file['content']), $dependency->name, $version);
 
             if ($updated !== null) {
-                return [$path, $file, $updated];
+                return [$path, $file, $updated, false, $refresh($path)];
             }
         }
 
-        return null;
+        // ponytail: Go transitive deps already sit in go.mod as // indirect, so only npm needs an override.
+        $root = $paths->first();
+
+        if (! $npm || $root === null) {
+            return null;
+        }
+
+        $updated = self::override(base64_decode($files[$root]['content']), $tool($root), $dependency->name, $version);
+
+        return $updated === null ? null : [$root, $files[$root], $updated, true, $refresh($root)];
     }
 
     private function api(): PendingRequest

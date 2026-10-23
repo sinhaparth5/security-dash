@@ -34,6 +34,44 @@ test('the manifest bump keeps the range prefix and only touches the named depend
     expect(GitHub::bump(Ecosystem::Npm, '{"dependencies":{"lodash":"github:lodash/lodash"}}', 'lodash', '4.17.21'))->toBeNull();
 });
 
+test('a transitive npm dependency is pinned with the override field its package manager reads', function () {
+    $json = "{\n\t\"name\": \"frontend\",\n\t\"scripts\": {},\n\t\"dependencies\": {\n\t\t\"@sveltejs/kit\": \"^2.63.0\"\n\t}\n}\n";
+
+    expect(GitHub::override($json, 'pnpm', 'devalue', '5.9.1'))
+        ->toBe("{\n\t\"name\": \"frontend\",\n\t\"scripts\": {},\n\t\"dependencies\": {\n\t\t\"@sveltejs/kit\": \"^2.63.0\"\n\t},\n\t\"pnpm\": {\n\t\t\"overrides\": {\n\t\t\t\"devalue\": \"^5.9.1\"\n\t\t}\n\t}\n}\n");
+    expect(json_decode(GitHub::override($json, 'yarn', 'devalue', '5.9.1'), true)['resolutions'])->toBe(['devalue' => '^5.9.1']);
+    expect(json_decode(GitHub::override('{"overrides":{"semver":"^7.5.2"}}', 'npm', 'devalue', 'v5.9.1'), true)['overrides'])
+        ->toBe(['semver' => '^7.5.2', 'devalue' => '^5.9.1']);
+    expect(GitHub::override('not json', 'npm', 'devalue', '5.9.1'))->toBeNull();
+});
+
+test('a transitive dependency gets an override pr in the nested package.json', function () {
+    $dependency = vulnerableLodash();
+    Http::fake([
+        'api.github.com/repos/acme/billing' => Http::response(['default_branch' => 'main']),
+        'api.github.com/repos/acme/billing/git/ref/heads/main' => Http::response(['object' => ['sha' => 'abc']]),
+        'api.github.com/repos/acme/billing/git/trees/abc*' => Http::response(['tree' => [
+            ['path' => 'frontend/package.json', 'type' => 'blob'],
+            ['path' => 'frontend/pnpm-lock.yaml', 'type' => 'blob'],
+        ]]),
+        'api.github.com/repos/acme/billing/contents/frontend/package.json*' => Http::sequence()
+            ->push(['sha' => 'file1', 'content' => base64_encode('{"dependencies":{"@sveltejs/kit":"^2.63.0"}}')])
+            ->push(['content' => []]),
+        'api.github.com/repos/acme/billing/git/refs' => Http::response([], 201),
+        'api.github.com/repos/acme/billing/pulls' => Http::response(['html_url' => 'https://github.com/acme/billing/pull/8'], 201),
+    ]);
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('services.dependencies.pull-request.store', [$dependency->service, $dependency]))
+        ->assertInertiaFlash('toast.type', 'success');
+
+    Http::assertSent(fn ($request) => $request->method() === 'PUT'
+        && json_decode(base64_decode($request['content']), true)['pnpm']['overrides'] === ['lodash' => '^4.17.21']);
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/pulls')
+        && str_starts_with($request['title'], 'Override lodash')
+        && str_contains($request['body'], '`pnpm install` in `frontend`'));
+});
+
 test('opening a pr bumps the manifest wherever it lives to the version that clears every advisory', function () {
     $dependency = vulnerableLodash();
     Http::fake([
