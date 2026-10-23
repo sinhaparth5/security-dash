@@ -7,6 +7,7 @@ use App\Enums\ServiceStatus;
 use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\Service;
+use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\ServiceTurnedRed;
 use App\Upstream\Exploitability;
@@ -120,7 +121,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         if ($turnedRed || $turnedMalicious) {
             $alert = new ServiceTurnedRed($this->service);
             Notification::send(User::all(), $alert);
-            $this->postWebhook($alert->summary());
+            self::postWebhook($alert->summary());
         }
     }
 
@@ -162,14 +163,15 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
     }
 
     /**
-     * Post the alert to the Slack or Discord incoming webhook, if one is configured. Best effort.
+     * Post the alert to the Slack or Discord incoming webhook, if one is configured. Best effort:
+     * returns whether the webhook accepted it.
      */
-    private function postWebhook(string $text): void
+    public static function postWebhook(string $text): bool
     {
-        $url = (string) config('services.alerts.webhook_url');
+        $url = (string) Setting::config('services.alerts.webhook_url');
 
         if ($url === '') {
-            return;
+            return false;
         }
 
         // Dependency names come from the service, so they must not ping anyone or smuggle in links:
@@ -177,7 +179,8 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $payload = str_contains($url, 'discord')
             ? ['content' => $text, 'allowed_mentions' => ['parse' => []]]
             : ['text' => str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text)];
-        rescue(fn () => Http::timeout(10)->post($url, $payload)->throw(), report: true);
+
+        return rescue(fn () => Http::timeout(10)->post($url, $payload)->throw()->successful(), false, report: true);
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Models\Advisory;
 use App\Models\AuditEvent;
 use App\Models\Dependency;
 use App\Models\Service;
+use App\Models\Setting;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -22,7 +23,7 @@ class GitHub
 
     public function enabled(): bool
     {
-        return filled(config('services.github.pr_token'));
+        return filled(Setting::config('services.github.pr_token'));
     }
 
     /**
@@ -229,7 +230,7 @@ class GitHub
     private function api(): PendingRequest
     {
         return Http::baseUrl('https://api.github.com/')
-            ->withToken((string) config('services.github.pr_token'))
+            ->withToken((string) Setting::config('services.github.pr_token'))
             ->withHeaders(['X-GitHub-Api-Version' => '2022-11-28'])
             ->acceptJson()
             ->timeout(20);

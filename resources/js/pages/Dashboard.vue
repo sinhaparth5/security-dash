@@ -29,6 +29,7 @@ import StatusCalendar from '@/components/charts/StatusCalendar.vue';
 import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
+import FleetRadar from '@/components/FleetRadar.vue';
 import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
@@ -385,40 +386,49 @@ function dependencyBreakdown(service: MonitoredService) {
     <Head title="Service health" />
 
     <div class="flex flex-1 flex-col gap-6 p-4 md:p-6">
-        <header class="flex flex-col items-center gap-3 text-center">
-            <div>
-                <h1 class="text-[28px] font-bold tracking-tight lowercase">
-                    service health
-                </h1>
-                <p class="mt-1 text-sm text-muted-foreground">
-                    Runtime and dependency versions your services report,
-                    checked against OSV and upstream releases.
-                </p>
+        <header
+            class="grid items-center gap-4 xl:grid-cols-[minmax(0,1fr)_30rem]"
+        >
+            <div class="flex flex-col items-center gap-3 text-center">
+                <div>
+                    <h1 class="text-[28px] font-bold tracking-tight lowercase">
+                        service health
+                    </h1>
+                    <p class="mt-1 text-sm text-muted-foreground">
+                        Runtime and dependency versions your services report,
+                        checked against OSV and upstream releases.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center justify-center gap-4">
+                    <p
+                        class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                        aria-live="polite"
+                    >
+                        <span class="relative flex size-2" aria-hidden="true">
+                            <span
+                                class="absolute inline-flex size-full animate-ping rounded-full bg-status-ok opacity-60 motion-reduce:hidden"
+                            />
+                            <span
+                                class="relative inline-flex size-2 rounded-full bg-status-ok"
+                            />
+                        </span>
+                        live · refreshed {{ refreshedLabel.toLowerCase() }}
+                    </p>
+                    <Button
+                        size="sm"
+                        class="bg-brand text-brand-foreground hover:bg-brand/90"
+                        @click="registering = true"
+                    >
+                        <Plus aria-hidden="true" />
+                        Register service
+                    </Button>
+                </div>
             </div>
-            <div class="flex flex-wrap items-center justify-center gap-4">
-                <p
-                    class="flex items-center gap-1.5 text-xs text-muted-foreground"
-                    aria-live="polite"
-                >
-                    <span class="relative flex size-2" aria-hidden="true">
-                        <span
-                            class="absolute inline-flex size-full animate-ping rounded-full bg-status-ok opacity-60 motion-reduce:hidden"
-                        />
-                        <span
-                            class="relative inline-flex size-2 rounded-full bg-status-ok"
-                        />
-                    </span>
-                    live · refreshed {{ refreshedLabel.toLowerCase() }}
-                </p>
-                <Button
-                    size="sm"
-                    class="bg-brand text-brand-foreground hover:bg-brand/90"
-                    @click="registering = true"
-                >
-                    <Plus aria-hidden="true" />
-                    Register service
-                </Button>
-            </div>
+            <FleetRadar
+                v-if="services.length > 0"
+                :services="services"
+                class="h-48 w-full overflow-hidden rounded-lg border bg-card shadow-card"
+            />
         </header>
 
         <div

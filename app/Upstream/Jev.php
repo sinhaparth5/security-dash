@@ -5,6 +5,7 @@ namespace App\Upstream;
 use App\Models\Advisory;
 use App\Models\NewsArticle;
 use App\Models\Service;
+use App\Models\Setting;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -40,7 +41,7 @@ class Jev
 
     public function enabled(): bool
     {
-        return filled(config('services.typesafe.key'));
+        return filled(Setting::config('services.typesafe.key'));
     }
 
     /**
@@ -90,9 +91,9 @@ class Jev
         }
 
         // Re-evaluations run hourly; only a changed advisory set (or changed KEV/EPSS signal) is asked again.
-        $answers = Cache::remember('upstream:jev:'.sha1((string) json_encode($state)), now()->addDays(7), fn () => Http::withToken((string) config('services.typesafe.key'))
+        $answers = Cache::remember('upstream:jev:'.sha1((string) json_encode($state)), now()->addDays(7), fn () => Http::withToken((string) Setting::config('services.typesafe.key'))
             ->acceptJson()->timeout(30)->retry(2, 1000)
-            ->post(self::API, ['model' => config('services.typesafe.model'), 'state' => $state, 'questions' => $questions])
+            ->post(self::API, ['model' => Setting::config('services.typesafe.model'), 'state' => $state, 'questions' => $questions])
             ->throw()->json('answers'));
 
         return $advisories->mapWithKeys(fn (Advisory $advisory, int $i) => [$advisory->id => [
@@ -137,9 +138,9 @@ class Jev
             ];
         }
 
-        $answers = Http::withToken((string) config('services.typesafe.key'))
+        $answers = Http::withToken((string) Setting::config('services.typesafe.key'))
             ->acceptJson()->timeout(30)->retry(2, 1000)
-            ->post(self::API, ['model' => config('services.typesafe.model'), 'state' => $state, 'questions' => $questions])
+            ->post(self::API, ['model' => Setting::config('services.typesafe.model'), 'state' => $state, 'questions' => $questions])
             ->throw()->json('answers');
 
         return $articles->mapWithKeys(fn (NewsArticle $article, int $i) => [$article->id => [

@@ -39,6 +39,7 @@ const labels: Record<string, string> = {
     'service.repository_updated': 'Linked GitHub repository',
     'pull_request.opened': 'Opened upgrade PR',
     'service.badge_rotated': 'Rotated status badge URL',
+    'settings.updated': 'Changed integrations',
     'user.login': 'Signed in',
     'user.login_denied': 'Sign-in denied',
 };

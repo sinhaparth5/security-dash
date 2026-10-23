@@ -5,6 +5,7 @@ import {
     Newspaper,
     Package,
     ScrollText,
+    Settings,
     ShieldCheck,
 } from '@lucide/vue';
 import AppLogo from '@/components/AppLogo.vue';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as auditIndex } from '@/routes/audit';
+import { edit as integrationsEdit } from '@/routes/integrations';
 import { index as newsIndex } from '@/routes/news';
 import { index as packagesIndex } from '@/routes/packages';
 import { index as tokensIndex } from '@/routes/tokens';
@@ -51,6 +53,11 @@ const mainNavItems: NavItem[] = [
         title: 'Audit log',
         href: auditIndex(),
         icon: ScrollText,
+    },
+    {
+        title: 'Settings',
+        href: integrationsEdit(),
+        icon: Settings,
     },
 ];
 </script>

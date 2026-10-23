@@ -325,6 +325,8 @@ Settings live in `.env` locally and in the server's env file in production (see 
 | `ALERT_WEBHOOK_URL`                        | No         | [Slack or Discord alerts](#slack-and-discord-alerts) alongside the red email        |
 | `SANCTUM_TOKEN_PREFIX`                     | No         | Service token prefix, `pw_` by default (see [Security](#security))                  |
 
+The optional integrations (`GITHUB_PR_TOKEN`, `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` and `ALERT_WEBHOOK_URL`) can also be set under **Settings → Integrations**. Values saved there are encrypted with `APP_KEY` and win over the env file. The page only shows the last four characters of a secret, and the audit log records which fields changed but never their values. The alerts panel has a **Send test** button.
+
 ## Deployment
 
 Every push to `master` runs `.github/workflows/ci.yml`:
