@@ -8,10 +8,10 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div
-    data-slot="card-content"
-    :class="cn('px-6', props.class)"
+  <tbody
+    data-slot="table-body"
+    :class="cn('[&_tr:last-child]:border-0', props.class)"
   >
     <slot />
-  </div>
+  </tbody>
 </template>

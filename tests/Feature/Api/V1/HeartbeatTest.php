@@ -26,6 +26,18 @@ test('heartbeat from a logged-in dashboard user returns 403', function () {
         ->assertForbidden();
 });
 
+test('a service is rate limited per token', function () {
+    Sanctum::actingAs(Service::factory()->create());
+
+    foreach (range(1, 60) as $_) {
+        $this->postJson(route('api.v1.heartbeat'), ['dependencies' => []])->assertNoContent();
+    }
+
+    $this->postJson(route('api.v1.heartbeat'), ['dependencies' => []])
+        ->assertTooManyRequests()
+        ->assertHeader('Retry-After');
+});
+
 test('heartbeat with an invalid payload returns 422', function () {
     Sanctum::actingAs(Service::factory()->create());
 

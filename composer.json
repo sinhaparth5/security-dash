@@ -1,11 +1,13 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/vue-starter-kit",
+    "name": "sinhaparth5/patchwatch",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Tracks the runtime and dependency versions services report and flags outdated or vulnerable ones.",
     "keywords": [
-        "laravel",
-        "framework"
+        "security",
+        "dependencies",
+        "osv",
+        "dashboard"
     ],
     "license": "MIT",
     "require": {

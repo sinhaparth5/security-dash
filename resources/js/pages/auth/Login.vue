@@ -6,7 +6,7 @@ import { github } from '@/routes/auth';
 
 defineOptions({
     layout: {
-        title: 'Log in to Security Dash',
+        title: 'Sign in to Patchwatch',
         description: 'Access is limited to approved GitHub accounts',
     },
 });
