@@ -12,6 +12,9 @@ export type Advisory = {
     epss: number | null;
     accepted: boolean;
     triage: AdvisoryTriage | null;
+    /** Fix-by date from severity and when the advisory was first seen. */
+    due_at: string;
+    overdue: boolean;
 };
 
 /** Jev's suggestion: urgency 0 (routine) to 3 (emergency), and the next step. */
@@ -53,6 +56,9 @@ export type Dependency = {
     status: Status;
     eol_at: string | null;
     pull_request_url: string | null;
+    pull_request_state: 'open' | 'merged' | 'closed' | null;
+    /** The popular npm package this name is one typo away from. */
+    lookalike: string | null;
     malicious: boolean;
     advisories: Advisory[];
 };
@@ -68,6 +74,7 @@ export type MonitoredService = {
     last_ping_at: string | null;
     is_stale: boolean;
     malicious: boolean;
+    overdue: number;
     dependencies: Dependency[];
     risk_acceptances: RiskAcceptance[];
 };
@@ -112,4 +119,16 @@ export type AuditEvent = {
     created_at: string;
     user: string | null;
     service: { id: number; name: string; environment: string } | null;
+};
+
+export type FleetPackage = {
+    ecosystem: Dependency['ecosystem'];
+    name: string;
+    status: Status;
+    services_count: number;
+    versions: {
+        version: string;
+        status: Status;
+        services: { id: number; name: string; environment: string }[];
+    }[];
 };

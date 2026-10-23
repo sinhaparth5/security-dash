@@ -295,3 +295,88 @@ test('a typesafe outage leaves grading intact and triage empty', function () {
     expect($dependency->fresh()->status)->toBe(ServiceStatus::Red);
     expect($dependency->advisories()->first()->triage)->toBeNull();
 });
+
+test('re-grading keeps when an advisory was first seen so its fix-by date does not reset', function () {
+    $dependency = Dependency::factory()->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Advisory::factory()->for($dependency)->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9', 'first_seen_at' => now()->subDays(10)->startOfSecond()]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    $advisory = $dependency->advisories()->sole();
+    expect($advisory->first_seen_at->toDateString())->toBe(now()->subDays(10)->toDateString());
+    expect($advisory->dueAt()->toDateString())->toBe(now()->addDays(20)->toDateString());
+});
+
+test('turning red posts the alert to the slack webhook with service-reported text escaped', function () {
+    Notification::fake();
+    config(['services.alerts.webhook_url' => 'https://hooks.slack.com/services/T/B/x']);
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->update(['name' => 'billing', 'status' => ServiceStatus::Green]);
+    $image = Dependency::factory()->for($dependency->service)->vulnerable()->create(['ecosystem' => Ecosystem::Image, 'name' => '<!channel>']);
+    Advisory::factory()->for($image)->create();
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    Http::fake(['hooks.slack.com/*' => Http::response('ok')]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://hooks.slack.com/')
+        && str_contains($request['text'], 'Security patch required: billing')
+        && str_contains($request['text'], 'lodash 4.17.20')
+        && str_contains($request['text'], '&lt;!channel&gt;')
+        && ! str_contains($request['text'], '<!channel>'));
+});
+
+test('discord webhooks get the alert with mentions disabled', function () {
+    Notification::fake();
+    config(['services.alerts.webhook_url' => 'https://discord.com/api/webhooks/1/x']);
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    Http::fake(['discord.com/*' => Http::response([], 204)]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://discord.com/')
+        && str_contains($request['content'], 'lodash') && $request['allowed_mentions'] === ['parse' => []]);
+});
+
+test('evaluation refreshes the state of open upgrade prs', function () {
+    config(['services.github.pr_token' => 'ghp-test']);
+    $service = Service::factory()->create(['repository' => 'acme/billing']);
+    $dependency = Dependency::factory()->for($service)->create([
+        'ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.21',
+        'pull_request_url' => 'https://github.com/acme/billing/pull/7', 'pull_request_state' => 'open',
+    ]);
+    fakeUpstream([[]]);
+    Http::fake(['api.github.com/repos/acme/billing/pulls/7' => Http::response(['state' => 'closed', 'merged_at' => '2026-10-23T10:00:00Z'])]);
+
+    EvaluateService::dispatchSync($service);
+
+    expect($dependency->fresh()->pull_request_state)->toBe('merged');
+});
+
+test('services that opted in get an upgrade pr opened when a dependency turns red', function () {
+    config(['services.github.pr_token' => 'ghp-test']);
+    $service = Service::factory()->create(['repository' => 'acme/billing', 'auto_pull_requests' => true]);
+    $dependency = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Dependency::factory()->for($service)->vulnerable()->create(['ecosystem' => Ecosystem::Image, 'name' => 'alpine']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    Http::fake([
+        'api.github.com/repos/acme/billing' => Http::response(['default_branch' => 'main']),
+        'api.github.com/repos/acme/billing/git/ref/heads/main' => Http::response(['object' => ['sha' => 'abc']]),
+        'api.github.com/repos/acme/billing/git/trees/abc*' => Http::response(['tree' => [['path' => 'package.json', 'type' => 'blob']]]),
+        'api.github.com/repos/acme/billing/contents/package.json*' => Http::sequence()
+            ->push(['sha' => 'file1', 'content' => base64_encode('{"dependencies":{"lodash":"^4.17.20"}}')])
+            ->push(['content' => []]),
+        'api.github.com/repos/acme/billing/git/refs' => Http::response([], 201),
+        'api.github.com/repos/acme/billing/pulls' => Http::response(['html_url' => 'https://github.com/acme/billing/pull/9'], 201),
+        'api.github.com/repos/acme/billing/pulls/9' => Http::response(['state' => 'open', 'merged_at' => null]),
+    ]);
+
+    EvaluateService::dispatchSync($service);
+    EvaluateService::dispatchSync($service);
+
+    expect($dependency->fresh())->pull_request_url->toBe('https://github.com/acme/billing/pull/9')->pull_request_state->toBe('open');
+    expect(Http::recorded(fn ($request) => str_ends_with($request->url(), '/pulls'))->count())->toBe(1);
+    $this->assertDatabaseHas('audit_events', ['action' => 'pull_request.opened', 'user_id' => null]);
+});

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Database\Factories\AdvisoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,14 +21,20 @@ use Illuminate\Support\Carbon;
  * @property bool $known_exploited
  * @property float|null $epss
  * @property array{urgency: float, urgency_confidence: float, action: string, action_confidence: float}|null $triage
+ * @property Carbon|null $first_seen_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'known_exploited', 'epss', 'triage'])]
+#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'known_exploited', 'epss', 'triage', 'first_seen_at'])]
 class Advisory extends Model
 {
     /** @use HasFactory<AdvisoryFactory> */
     use HasFactory;
+
+    /**
+     * Days to fix an advisory after it first shows up, by severity. Unrated advisories get the moderate window.
+     */
+    public const SLA_DAYS = ['CRITICAL' => 2, 'HIGH' => 7, 'MODERATE' => 30, 'MEDIUM' => 30, 'LOW' => 90];
 
     /**
      * OSV publishes malware reports under MAL- ids: the package itself is hostile, not just buggy.
@@ -43,6 +50,16 @@ class Advisory extends Model
     public function cve(): ?string
     {
         return collect([$this->osv_id, ...$this->aliases])->first(fn (string $id) => str_starts_with($id, 'CVE-'));
+    }
+
+    /**
+     * When the advisory should be fixed by: malware and actively exploited advisories get a day.
+     */
+    public function dueAt(): CarbonInterface
+    {
+        $days = $this->isMalicious() || $this->known_exploited ? 1 : self::SLA_DAYS[strtoupper((string) $this->severity)] ?? self::SLA_DAYS['MODERATE'];
+
+        return ($this->first_seen_at ?? $this->created_at ?? now())->copy()->addDays($days);
     }
 
     /**
@@ -65,6 +82,7 @@ class Advisory extends Model
             'known_exploited' => 'boolean',
             'epss' => 'float',
             'triage' => 'array',
+            'first_seen_at' => 'datetime',
         ];
     }
 }

@@ -10,13 +10,16 @@ use App\Models\Service;
 use App\Models\User;
 use App\Notifications\ServiceTurnedRed;
 use App\Upstream\Exploitability;
+use App\Upstream\GitHub;
 use App\Upstream\Jev;
 use App\Upstream\Osv;
 use App\Upstream\Releases;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 
 class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
@@ -39,9 +42,9 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * Red = known advisory on the running version (or a runtime past end of life), Yellow = newer release available, Green = neither.
      * Advisories with an active risk acceptance don't count towards Red. Images keep the grade their last
      * CI scan gave them unless every finding has been accepted.
-     * Every user is mailed when the service first turns Red, or when a malicious package first shows up.
+     * Every user is mailed (and the alert webhook posted) when the service first turns Red, or when a malicious package first shows up.
      */
-    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev): void
+    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev, GitHub $github): void
     {
         $previousStatus = $this->service->fresh()->status;
         $wasMalicious = $this->hasMaliciousAdvisory();
@@ -82,8 +85,13 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
         DB::transaction(function () use ($evaluations, $scannedImages, $imageStatuses, $previousStatus) {
             foreach ($evaluations as $evaluation) {
+                // Advisories are rebuilt every run; keep when each was first seen so fix-by dates don't reset.
+                $firstSeen = $evaluation['dependency']->advisories->pluck('first_seen_at', 'osv_id');
                 $evaluation['dependency']->advisories()->delete();
-                $evaluation['dependency']->advisories()->createMany($evaluation['advisories']);
+                $evaluation['dependency']->advisories()->createMany(array_map(
+                    fn (array $advisory) => $advisory + ['first_seen_at' => $firstSeen[$advisory['osv_id']] ?? now()],
+                    $evaluation['advisories'],
+                ));
                 $evaluation['dependency']->update([
                     'latest_version' => $evaluation['latestVersion'],
                     'status' => $evaluation['status'],
@@ -104,13 +112,72 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
         $this->enrich($exploitability);
         $this->triage($jev, $accepted->all());
+        $this->pullRequests($github);
 
         $turnedRed = $previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red;
         $turnedMalicious = ! $wasMalicious && $this->hasMaliciousAdvisory();
 
         if ($turnedRed || $turnedMalicious) {
-            Notification::send(User::all(), new ServiceTurnedRed($this->service));
+            $alert = new ServiceTurnedRed($this->service);
+            Notification::send(User::all(), $alert);
+            $this->postWebhook($alert->summary());
         }
+    }
+
+    /**
+     * Refresh the state of PRs Patchwatch opened, then, when the service opted in, open one for
+     * every Red dependency that has a known fix and no PR yet.
+     */
+    private function pullRequests(GitHub $github): void
+    {
+        if (! $github->enabled() || $this->service->repository === null) {
+            return;
+        }
+
+        $dependencies = $this->service->dependencies()->with('advisories')->get();
+
+        // ponytail: one GitHub call per tracked PR each run, best effort; use a pull_request webhook if there are hundreds.
+        foreach ($dependencies->whereNotNull('pull_request_url')->where('pull_request_state', 'open') as $dependency) {
+            $state = rescue(fn () => $github->pullRequestState((string) $dependency->pull_request_url), null, report: true);
+
+            if ($state !== null) {
+                $dependency->update(['pull_request_state' => $state]);
+            }
+        }
+
+        if (! $this->service->auto_pull_requests) {
+            return;
+        }
+
+        $candidates = $dependencies->filter(fn (Dependency $dependency) => $dependency->status === ServiceStatus::Red
+            && $dependency->pull_request_url === null
+            && isset(GitHub::MANIFESTS[$dependency->ecosystem->value]));
+
+        foreach ($candidates as $dependency) {
+            // A failed attempt (no fix yet, branch exists, manifest not found) is retried once a day, not hourly.
+            if (Cache::add("auto-pr:{$dependency->id}:{$dependency->version}", true, now()->addDay())) {
+                rescue(fn () => $github->openUpgrade($this->service, $dependency, automatic: true), report: false);
+            }
+        }
+    }
+
+    /**
+     * Post the alert to the Slack or Discord incoming webhook, if one is configured. Best effort.
+     */
+    private function postWebhook(string $text): void
+    {
+        $url = (string) config('services.alerts.webhook_url');
+
+        if ($url === '') {
+            return;
+        }
+
+        // Dependency names come from the service, so they must not ping anyone or smuggle in links:
+        // Discord gets mentions disabled, Slack gets its control characters escaped.
+        $payload = str_contains($url, 'discord')
+            ? ['content' => $text, 'allowed_mentions' => ['parse' => []]]
+            : ['text' => str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text)];
+        rescue(fn () => Http::timeout(10)->post($url, $payload)->throw(), report: true);
     }
 
     /**

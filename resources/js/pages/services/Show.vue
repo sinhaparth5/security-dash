@@ -3,16 +3,21 @@ import { Form, Head, Link, router, usePoll } from '@inertiajs/vue3';
 import { useClipboard } from '@vueuse/core';
 import {
     ArrowLeft,
+    CalendarClock,
     Check,
     Clock,
     Copy,
     ExternalLink,
+    GitMerge,
     GitPullRequest,
+    GitPullRequestClosed,
     History,
     KeyRound,
+    Link2,
     ShieldCheck,
     Skull,
     Sparkles,
+    TriangleAlert,
     Wrench,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
@@ -34,7 +39,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { lastSeen, packageUrl, plural } from '@/lib/format';
+import { lastSeen, packageUrl, plural, versionsUrl } from '@/lib/format';
 import { statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
 import type {
@@ -61,6 +66,8 @@ const props = defineProps<{
     service: MonitoredService;
     history: StatusChange[];
     canOpenPullRequests: boolean;
+    autoPullRequests: boolean;
+    badgeUrl: string | null;
 }>();
 
 usePoll(60_000, { only: ['service', 'history'] });
@@ -94,6 +101,25 @@ function epssLabel(epss: number): string {
 }
 
 const DAY = 86_400_000;
+
+/** Fix-by countdown for an advisory still counted against the service. */
+function dueLabel(advisory: Advisory): string {
+    const left = new Date(advisory.due_at).getTime() - Date.now();
+
+    if (advisory.overdue) {
+        return `Overdue by ${plural(Math.max(1, Math.floor(-left / DAY)), 'day', 'days')}`;
+    }
+
+    const days = Math.ceil(left / DAY);
+
+    return days <= 1 ? 'Fix today' : `Fix within ${days} days`;
+}
+
+const pullRequestMeta = {
+    open: { label: 'Upgrade PR open', icon: GitPullRequest },
+    merged: { label: 'PR merged, waiting for deploy', icon: GitMerge },
+    closed: { label: 'PR closed without merging', icon: GitPullRequestClosed },
+};
 
 function endOfLife(
     dependency: Dependency,
@@ -208,6 +234,26 @@ function openPullRequest(dependency: Dependency): void {
 }
 
 const { copy, copied, text: copiedText } = useClipboard({ legacy: true });
+
+const badgeMarkdown = computed(() =>
+    props.badgeUrl ? `![Patchwatch status](${props.badgeUrl})` : null,
+);
+
+function rotateBadge(): void {
+    router.post(
+        ServiceController.rotateBadge.url(props.service.id),
+        {},
+        {
+            preserveScroll: true,
+            only: ['badgeUrl'],
+            onBefore: () =>
+                props.badgeUrl === null ||
+                confirm(
+                    'Replace the badge URL? READMEs using the old one will show a broken image.',
+                ),
+        },
+    );
+}
 
 // One inline "accept risk" form open at a time, keyed by dependency and advisory.
 const accepting = ref<string | null>(null);
@@ -366,37 +412,6 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     <Copy v-else aria-hidden="true" />
                 </Button>
             </div>
-            <Form
-                v-if="canOpenPullRequests"
-                v-bind="ServiceController.updateRepository.form(service.id)"
-                :options="{ preserveScroll: true, only: ['service'] }"
-                class="mt-2 flex flex-col gap-1.5 border-t pt-3"
-                v-slot="{ errors, processing }"
-            >
-                <Label for="repository">GitHub repository</Label>
-                <p class="text-xs text-muted-foreground">
-                    Link the repo to open a version-bump PR from each vulnerable
-                    dependency below.
-                </p>
-                <div class="flex flex-wrap gap-2">
-                    <Input
-                        id="repository"
-                        name="repository"
-                        :default-value="service.repository ?? ''"
-                        placeholder="acme/billing-api"
-                        autocomplete="off"
-                        spellcheck="false"
-                        class="max-w-xs font-mono"
-                    />
-                    <Button
-                        type="submit"
-                        variant="outline"
-                        :disabled="processing"
-                        >Save</Button
-                    >
-                </div>
-                <InputError :message="errors.repository" />
-            </Form>
         </section>
 
         <nav
@@ -505,6 +520,16 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     <Skull aria-hidden="true" />
                                     Malware
                                 </Badge>
+                                <Badge
+                                    v-if="dependency.lookalike"
+                                    variant="outline"
+                                    class="gap-1 font-normal"
+                                    :class="statusMeta.yellow.text"
+                                    :title="`One letter away from the popular package ${dependency.lookalike}. Check this is the package you meant to install.`"
+                                >
+                                    <TriangleAlert aria-hidden="true" />
+                                    Looks like {{ dependency.lookalike }}
+                                </Badge>
                             </span>
                             <span
                                 class="font-mono text-xs text-muted-foreground"
@@ -543,8 +568,20 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             rel="noopener noreferrer"
                             class="mt-2 inline-flex items-center gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
                         >
-                            <GitPullRequest class="size-4" aria-hidden="true" />
-                            Upgrade PR opened
+                            <component
+                                :is="
+                                    pullRequestMeta[
+                                        dependency.pull_request_state ?? 'open'
+                                    ].icon
+                                "
+                                class="size-4"
+                                aria-hidden="true"
+                            />
+                            {{
+                                pullRequestMeta[
+                                    dependency.pull_request_state ?? 'open'
+                                ].label
+                            }}
                             <ExternalLink class="size-3" aria-hidden="true" />
                             <span class="sr-only">(opens GitHub)</span>
                         </a>
@@ -629,6 +666,20 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     >
                                         <ShieldCheck aria-hidden="true" />
                                         Risk accepted
+                                    </Badge>
+                                    <Badge
+                                        v-else
+                                        variant="outline"
+                                        class="gap-1"
+                                        :class="
+                                            advisory.overdue
+                                                ? 'border-status-critical text-status-critical'
+                                                : ''
+                                        "
+                                        :title="`Fix by ${new Date(advisory.due_at).toLocaleDateString()}, from its severity and when Patchwatch first saw it`"
+                                    >
+                                        <CalendarClock aria-hidden="true" />
+                                        {{ dueLabel(advisory) }}
                                     </Badge>
                                     <Badge
                                         v-if="
@@ -819,6 +870,16 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         <Clock aria-hidden="true" />
                                         {{ endOfLife(dependency)!.label }}
                                     </Badge>
+                                    <Badge
+                                        v-if="dependency.lookalike"
+                                        variant="outline"
+                                        class="ml-2 gap-1 font-normal"
+                                        :class="statusMeta.yellow.text"
+                                        :title="`One letter away from the popular package ${dependency.lookalike}. Check this is the package you meant to install.`"
+                                    >
+                                        <TriangleAlert aria-hidden="true" />
+                                        Looks like {{ dependency.lookalike }}
+                                    </Badge>
                                 </TableCell>
                                 <TableCell
                                     class="hidden font-mono text-xs text-muted-foreground sm:table-cell"
@@ -836,10 +897,30 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                             ? 'font-medium'
                                             : 'text-muted-foreground'
                                     "
-                                    >{{
-                                        dependency.latest_version ?? '—'
-                                    }}</TableCell
                                 >
+                                    <a
+                                        v-if="
+                                            group.status === 'yellow' &&
+                                            versionsUrl(dependency)
+                                        "
+                                        :href="versionsUrl(dependency)!"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+                                        >{{ dependency.latest_version }}
+                                        <ExternalLink
+                                            class="size-3"
+                                            aria-hidden="true"
+                                        />
+                                        <span class="sr-only"
+                                            >(see what changed, opens in a new
+                                            tab)</span
+                                        ></a
+                                    >
+                                    <template v-else>{{
+                                        dependency.latest_version ?? '—'
+                                    }}</template>
+                                </TableCell>
                             </TableRow>
                         </TableBody>
                     </Table>
@@ -873,7 +954,21 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 >
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-mono font-medium">{{
+                            <a
+                                v-if="advisoryUrl(acceptance.osv_id)"
+                                :href="advisoryUrl(acceptance.osv_id)!"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="inline-flex items-center gap-1 font-mono font-medium underline-offset-2 hover:underline"
+                            >
+                                {{ acceptance.osv_id }}
+                                <ExternalLink
+                                    class="size-3"
+                                    aria-hidden="true"
+                                />
+                                <span class="sr-only">(opens osv.dev)</span>
+                            </a>
+                            <span v-else class="font-mono font-medium">{{
                                 acceptance.osv_id
                             }}</span>
                             <Badge
@@ -940,6 +1035,109 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     >
                 </li>
             </ol>
+        </section>
+        <section
+            aria-labelledby="integrations-heading"
+            class="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs"
+        >
+            <h2
+                id="integrations-heading"
+                class="flex items-center gap-2 font-semibold"
+            >
+                <Link2
+                    class="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                />
+                Repository and badge
+            </h2>
+            <Form
+                v-if="canOpenPullRequests"
+                v-bind="ServiceController.updateRepository.form(service.id)"
+                :options="{ preserveScroll: true, only: ['service'] }"
+                class="flex flex-col gap-1.5"
+                v-slot="{ errors, processing }"
+            >
+                <Label for="repository">GitHub repository</Label>
+                <p class="text-xs text-muted-foreground">
+                    Link the repo to open version-bump PRs from vulnerable
+                    dependencies.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                    <Input
+                        id="repository"
+                        name="repository"
+                        :default-value="service.repository ?? ''"
+                        placeholder="acme/billing-api"
+                        autocomplete="off"
+                        spellcheck="false"
+                        class="max-w-xs font-mono"
+                    />
+                    <Button
+                        type="submit"
+                        variant="outline"
+                        :disabled="processing"
+                        >Save</Button
+                    >
+                </div>
+                <InputError :message="errors.repository" />
+                <label class="mt-1 flex items-start gap-2 text-sm">
+                    <input
+                        type="checkbox"
+                        name="auto_pull_requests"
+                        value="1"
+                        :checked="autoPullRequests"
+                        class="mt-0.5 size-4 accent-primary"
+                    />
+                    <span
+                        >Open upgrade PRs automatically when a dependency turns
+                        red and a fix is known.</span
+                    >
+                </label>
+            </Form>
+            <div
+                class="flex flex-col gap-1.5"
+                :class="{ 'border-t pt-4': canOpenPullRequests }"
+            >
+                <h3 class="text-sm font-medium">README status badge</h3>
+                <p class="text-xs text-muted-foreground">
+                    A public image of this service's status. Anyone with the URL
+                    can see the status, so rotate it if it leaks.
+                </p>
+                <div
+                    v-if="badgeMarkdown"
+                    class="flex flex-wrap items-center gap-2"
+                >
+                    <img :src="badgeUrl!" alt="" height="20" />
+                    <pre
+                        class="min-w-0 flex-1 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs"
+                    ><code>{{ badgeMarkdown }}</code></pre>
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        :aria-label="
+                            copied && copiedText === badgeMarkdown
+                                ? 'Copied'
+                                : 'Copy badge markdown'
+                        "
+                        @click="copy(badgeMarkdown)"
+                    >
+                        <Check
+                            v-if="copied && copiedText === badgeMarkdown"
+                            aria-hidden="true"
+                        />
+                        <Copy v-else aria-hidden="true" />
+                    </Button>
+                </div>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    class="w-fit"
+                    @click="rotateBadge"
+                    >{{
+                        badgeUrl ? 'Rotate badge URL' : 'Create badge'
+                    }}</Button
+                >
+            </div>
         </section>
     </div>
 </template>

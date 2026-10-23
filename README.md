@@ -39,6 +39,9 @@ CI (Trivy) ─scan──────▶ POST /api/v1/telemetry/image-scan ─┤
 - **Container images** keep the grade their latest Trivy scan gave them.
 - Upstream responses are cached. If an upstream is unavailable, the evaluation fails and retries, and the last grade stays in place. An outage is never read as "no advisories". KEV and EPSS are the exception: they only add badges, so an outage there just hides them until the next evaluation.
 - If no evaluation has finished for two hours, or queued jobs have failed, the dashboard shows a warning: check the queue worker and the scheduler.
+- Every counted advisory gets a **fix-by date** from when it was first seen: 2 days for critical, 7 for high, 30 for moderate or unrated, 90 for low, and 1 day for malware or anything in CISA KEV. Overdue advisories are counted on the dashboard.
+- npm names one typo away from a popular package (`expres`, `lodahs`) get a **Looks like …** warning. It is a hint and never changes a grade.
+- **Packages** (sidebar) lists every package across the fleet, grouped by version with the services running it. Search it when a new advisory lands.
 
 ## Requirements
 
@@ -212,11 +215,21 @@ What is sent: service name and environment, and per advisory the package, ecosys
 
 ### Upgrade pull requests (optional)
 
-With `GITHUB_PR_TOKEN` set, link a service to its repo (`owner/name`) under **Fix the advisories** on the service page. Each vulnerable npm or Go dependency then gets an **Open PR** button that branches off the default branch (`patchwatch/<package>-<version>`), bumps the version in the first `package.json` (keeping `^`/`~`) or `go.mod` that lists it, root first and then subfolders (skipping `node_modules`/`vendor`). A transitive npm dependency is pinned instead with an override in the shallowest `package.json`: `pnpm.overrides`, `resolutions` (yarn) or `overrides` (npm, bun), picked from the lockfile next to it, and opens a PR listing the advisories it fixes.
+With `GITHUB_PR_TOKEN` set, link a service to its repo (`owner/name`) under **Repository and badge** on the service page. Each vulnerable npm or Go dependency then gets an **Open PR** button that branches off the default branch (`patchwatch/<package>-<version>`), bumps the version in the first `package.json` (keeping `^`/`~`) or `go.mod` that lists it, root first and then subfolders (skipping `node_modules`/`vendor`). A transitive npm dependency is pinned instead with an override in the shallowest `package.json`: `pnpm.overrides`, `resolutions` (yarn) or `overrides` (npm, bun), picked from the lockfile next to it, and opens a PR listing the advisories it fixes.
 
 Use a [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to the service repos, with **Contents: Read and write** and **Pull requests: Read and write**. It is separate from the sign-in OAuth app.
 
-Only the manifest is changed. The PR body says to run `npm install` or `go mod tidy` on the branch so the lockfile catches up. Transitive dependencies (not listed in the manifest) can't be bumped this way.
+Only the manifest is changed. The PR body says which install command (`pnpm`/`yarn`/`bun`/`npm install` or `go mod tidy`) to run on the branch so the lockfile catches up.
+
+Each evaluation checks the PRs Patchwatch opened, so the service page shows them as open, merged (waiting for deploy) or closed. Tick **Open upgrade PRs automatically** to have evaluations open the PR themselves when a dependency turns red and a fix is known. A failed attempt is retried once a day.
+
+### Chat alerts and weekly digest
+
+Set `ALERT_WEBHOOK_URL` to a Slack or Discord incoming webhook to get the same alerts as the Red mail in a channel. Every user also gets a digest mail on Monday at 08:00 (app timezone) with services that turned Red or recovered, overdue advisories, and open upgrade PRs.
+
+### README badge
+
+**Create badge** under **Repository and badge** on the service page gives a public SVG at `/badge/<token>.svg` showing the service's status. The URL is the only secret, so anyone who has it can see the status. Rotate it if it leaks.
 
 ## Tech stack
 

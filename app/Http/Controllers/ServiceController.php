@@ -8,6 +8,7 @@ use App\Models\StatusChange;
 use App\Upstream\GitHub;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,6 +22,8 @@ class ServiceController extends Controller
         return Inertia::render('services/Show', [
             'service' => DashboardController::present($service->load(DashboardController::relations())),
             'canOpenPullRequests' => $github->enabled(),
+            'autoPullRequests' => $service->auto_pull_requests,
+            'badgeUrl' => $service->badge_token ? route('badge.show', $service->badge_token) : null,
             'history' => $service->statusChanges()->latest('id')->limit(20)->get()->map(fn (StatusChange $change) => [
                 'id' => $change->id,
                 'status' => $change->status,
@@ -62,20 +65,35 @@ class ServiceController extends Controller
     }
 
     /**
-     * Link the service to its GitHub repository ("owner/name"), where version-bump PRs are opened.
+     * Link the service to its GitHub repository ("owner/name"), where version-bump PRs are opened,
+     * and choose whether evaluations open them on their own.
      */
     public function updateRepository(Request $request, Service $service): RedirectResponse
     {
         $validated = $request->validate([
             'repository' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/'],
+            'auto_pull_requests' => ['boolean'],
         ], [
             'regex' => 'Use the owner/name form, for example acme/billing-api.',
         ]);
 
-        $service->update(['repository' => $validated['repository'] ?? null]);
+        $service->update(['repository' => $validated['repository'] ?? null, 'auto_pull_requests' => $request->boolean('auto_pull_requests')]);
 
-        AuditEvent::record('service.repository_updated', $service, ['repository' => $service->repository]);
+        AuditEvent::record('service.repository_updated', $service, ['repository' => $service->repository, 'auto_pull_requests' => $service->auto_pull_requests]);
         Inertia::flash('toast', ['type' => 'success', 'message' => $service->repository ? "Linked to {$service->repository}." : 'Repository unlinked.']);
+
+        return back();
+    }
+
+    /**
+     * Create or replace the secret URL of the service's README status badge. The old URL stops working.
+     */
+    public function rotateBadge(Service $service): RedirectResponse
+    {
+        $service->update(['badge_token' => Str::random(40)]);
+
+        AuditEvent::record('service.badge_rotated', $service);
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'New badge URL created. Update any README that used the old one.']);
 
         return back();
     }

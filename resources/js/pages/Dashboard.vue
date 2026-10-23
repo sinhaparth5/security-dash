@@ -5,6 +5,7 @@ import {
     ArrowDown,
     ArrowUp,
     ArrowUpDown,
+    CalendarClock,
     Clock,
     Plus,
     Search,
@@ -498,6 +499,14 @@ function dependencyBreakdown(service: MonitoredService) {
                                         >
                                             <Skull aria-hidden="true" />
                                             Malware
+                                        </Badge>
+                                        <Badge
+                                            v-if="service.overdue"
+                                            variant="outline"
+                                            class="gap-1 border-status-critical text-status-critical"
+                                        >
+                                            <CalendarClock aria-hidden="true" />
+                                            {{ service.overdue }} overdue
                                         </Badge>
                                     </span>
                                     <span

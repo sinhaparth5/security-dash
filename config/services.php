@@ -44,6 +44,11 @@ return [
         'model' => env('TYPESAFE_MODEL', 'jev-latest'),
     ],
 
+    'alerts' => [
+        // Slack or Discord incoming webhook that gets the same alerts as the Red mail.
+        'webhook_url' => env('ALERT_WEBHOOK_URL'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

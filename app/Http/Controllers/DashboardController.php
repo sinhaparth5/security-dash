@@ -100,6 +100,8 @@ class DashboardController extends Controller
                     'epss' => $advisory->epss,
                     'accepted' => $accepted->has($advisory->osv_id),
                     'triage' => $advisory->triage,
+                    'due_at' => $advisory->dueAt()->toIso8601String(),
+                    'overdue' => $advisory->dueAt()->isPast() && ! $accepted->has($advisory->osv_id),
                 ]);
 
             return [
@@ -111,6 +113,8 @@ class DashboardController extends Controller
                 'status' => $dependency->status,
                 'eol_at' => $dependency->eol_at?->toDateString(),
                 'pull_request_url' => $dependency->pull_request_url,
+                'pull_request_state' => $dependency->pull_request_state,
+                'lookalike' => $dependency->lookalike(),
                 'malicious' => $advisories->contains(fn (array $advisory) => $advisory['malicious'] && ! $advisory['accepted']),
                 'advisories' => $advisories,
             ];
@@ -127,6 +131,7 @@ class DashboardController extends Controller
             'last_ping_at' => $service->last_ping_at?->toIso8601String(),
             'is_stale' => $service->last_ping_at === null || $service->last_ping_at->lt(now()->subHours(self::STALE_AFTER_HOURS)),
             'malicious' => $dependencies->contains('malicious', true),
+            'overdue' => $dependencies->sum(fn (array $dependency) => $dependency['advisories']->where('overdue', true)->count()),
             // Worst first; within a status, malware, then actively exploited, then by name.
             'dependencies' => $dependencies
                 ->sortBy(fn (array $dependency) => [

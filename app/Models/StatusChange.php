@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ServiceStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
@@ -19,6 +20,14 @@ use Illuminate\Support\Carbon;
 class StatusChange extends Model
 {
     public const UPDATED_AT = null;
+
+    /**
+     * @return BelongsTo<Service, $this>
+     */
+    public function service(): BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
 
     /**
      * Get the attributes that should be cast.

@@ -3,7 +3,10 @@
 namespace App\Upstream;
 
 use App\Enums\Ecosystem;
+use App\Models\Advisory;
+use App\Models\AuditEvent;
 use App\Models\Dependency;
+use App\Models\Service;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -20,6 +23,58 @@ class GitHub
     public function enabled(): bool
     {
         return filled(config('services.github.pr_token'));
+    }
+
+    /**
+     * Open a PR bumping the dependency to the lowest version that clears every advisory still counted
+     * against it, store its URL and audit it. Returns the version it bumps to.
+     *
+     * @throws RuntimeException when no fix is known or the manifest cannot be changed
+     * @throws RequestException when GitHub refuses
+     */
+    public function openUpgrade(Service $service, Dependency $dependency, bool $automatic = false): string
+    {
+        $accepted = $service->riskAcceptances()->active()->pluck('osv_id');
+        $advisories = $dependency->advisories->reject(fn (Advisory $advisory) => $accepted->contains($advisory->osv_id));
+        $version = self::fixVersion($advisories->pluck('fixed_version')->all())
+            ?? throw new RuntimeException('No fixed version is known for these advisories yet.');
+
+        $url = $this->openVersionBump((string) $service->repository, $dependency, $version, array_values($advisories->pluck('osv_id')->all()));
+
+        $dependency->update(['pull_request_url' => $url, 'pull_request_state' => 'open']);
+        AuditEvent::record('pull_request.opened', $service, ['dependency' => $dependency->name, 'version' => $version, 'url' => $url, 'automatic' => $automatic ?: null]);
+
+        return $version;
+    }
+
+    /**
+     * The highest of the advisories' fixed versions: the lowest version that clears them all.
+     *
+     * @param  array<int, string|null>  $versions
+     */
+    public static function fixVersion(array $versions): ?string
+    {
+        return collect($versions)->filter()
+            ->sort(fn (string $a, string $b) => version_compare(Releases::normalize($b), Releases::normalize($a)))
+            ->first();
+    }
+
+    /**
+     * Whether a PR this app opened is open, merged or closed without merging.
+     */
+    public function pullRequestState(string $url): ?string
+    {
+        if (! preg_match('#^https://github\.com/([^/]+/[^/]+)/pull/(\d+)$#', $url, $match)) {
+            return null;
+        }
+
+        $pull = $this->api()->get("repos/{$match[1]}/pulls/{$match[2]}")->throw()->json();
+
+        return match (true) {
+            ($pull['merged_at'] ?? null) !== null => 'merged',
+            $pull['state'] === 'open' => 'open',
+            default => 'closed',
+        };
     }
 
     /**

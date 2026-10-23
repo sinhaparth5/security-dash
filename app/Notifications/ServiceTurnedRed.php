@@ -8,6 +8,7 @@ use App\Models\Dependency;
 use App\Models\Service;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -37,13 +38,7 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $vulnerable = $this->service->dependencies()
-            ->where('status', ServiceStatus::Red)
-            ->withCount('advisories')
-            ->with('advisories')
-            ->orderByDesc('advisories_count')
-            ->get();
-
+        $vulnerable = $this->vulnerable();
         $malicious = $vulnerable->flatMap->advisories->filter(fn (Advisory $advisory) => $advisory->isMalicious());
         $label = "{$this->service->name} ({$this->service->environment})";
 
@@ -67,6 +62,36 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
         }
 
         return $message->action('Open the dashboard', route('dashboard'));
+    }
+
+    /**
+     * The same alert as one plain-text message, for chat webhooks.
+     */
+    public function summary(): string
+    {
+        $vulnerable = $this->vulnerable();
+        $label = "{$this->service->name} ({$this->service->environment})";
+        $malicious = $vulnerable->flatMap->advisories->contains(fn (Advisory $advisory) => $advisory->isMalicious());
+
+        return implode("\n", [
+            $malicious ? "Malicious package detected: {$label}" : "Security patch required: {$label}",
+            ...$vulnerable->take(self::LISTED_DEPENDENCIES)->map(fn (Dependency $dependency) => '• '.$this->describe($dependency)),
+            ...($vulnerable->count() > self::LISTED_DEPENDENCIES ? ['…and '.($vulnerable->count() - self::LISTED_DEPENDENCIES).' more.'] : []),
+            route('services.show', $this->service),
+        ]);
+    }
+
+    /**
+     * @return Collection<int, Dependency>
+     */
+    private function vulnerable(): Collection
+    {
+        return $this->service->dependencies()
+            ->where('status', ServiceStatus::Red)
+            ->withCount('advisories')
+            ->with('advisories')
+            ->orderByDesc('advisories_count')
+            ->get();
     }
 
     private function describe(Dependency $dependency): string

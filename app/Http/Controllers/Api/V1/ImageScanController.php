@@ -44,8 +44,9 @@ class ImageScanController extends Controller
                 ['version' => $version, 'latest_version' => null, 'status' => $advisories === [] ? ServiceStatus::Green : ServiceStatus::Red],
             );
 
+            $firstSeen = $image->advisories()->pluck('first_seen_at', 'osv_id');
             $image->advisories()->delete();
-            $image->advisories()->createMany($advisories);
+            $image->advisories()->createMany(array_map(fn (array $advisory) => $advisory + ['first_seen_at' => $firstSeen[$advisory['osv_id']] ?? now()], $advisories));
         });
 
         EvaluateService::dispatch($service);

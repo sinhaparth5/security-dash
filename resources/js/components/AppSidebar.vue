@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { KeyRound, ScrollText, ShieldCheck } from '@lucide/vue';
+import { KeyRound, Package, ScrollText, ShieldCheck } from '@lucide/vue';
 import AppLogo from '@/components/AppLogo.vue';
 import NavMain from '@/components/NavMain.vue';
 import NavUser from '@/components/NavUser.vue';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as auditIndex } from '@/routes/audit';
+import { index as packagesIndex } from '@/routes/packages';
 import { index as tokensIndex } from '@/routes/tokens';
 import type { NavItem } from '@/types';
 
@@ -23,6 +24,11 @@ const mainNavItems: NavItem[] = [
         title: 'Service health',
         href: dashboard(),
         icon: ShieldCheck,
+    },
+    {
+        title: 'Packages',
+        href: packagesIndex(),
+        icon: Package,
     },
     {
         title: 'Tokens',

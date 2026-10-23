@@ -36,8 +36,24 @@ const registries: Partial<Record<Dependency['ecosystem'], string>> = {
 };
 
 /** The package's registry page, or null for runtimes and images. */
-export function packageUrl(dependency: Dependency): string | null {
+export function packageUrl(
+    dependency: Pick<Dependency, 'ecosystem' | 'name'>,
+): string | null {
     const base = registries[dependency.ecosystem];
 
     return base ? base + dependency.name : null;
+}
+
+const versionPages: Partial<Record<Dependency['ecosystem'], string>> = {
+    npm: '?activeTab=versions',
+    go: '?tab=versions',
+};
+
+/** The registry's version history, to see what changed before upgrading. */
+export function versionsUrl(
+    dependency: Pick<Dependency, 'ecosystem' | 'name'>,
+): string | null {
+    const page = packageUrl(dependency);
+
+    return page && page + versionPages[dependency.ecosystem];
 }

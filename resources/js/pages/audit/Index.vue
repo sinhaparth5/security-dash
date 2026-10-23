@@ -38,6 +38,7 @@ const labels: Record<string, string> = {
     'risk.revoked': 'Removed risk acceptance',
     'service.repository_updated': 'Linked GitHub repository',
     'pull_request.opened': 'Opened upgrade PR',
+    'service.badge_rotated': 'Rotated status badge URL',
     'user.login': 'Signed in',
     'user.login_denied': 'Sign-in denied',
 };
