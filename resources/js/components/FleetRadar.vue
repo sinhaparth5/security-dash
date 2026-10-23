@@ -17,8 +17,11 @@ const canvas = ref<HTMLCanvasElement>();
 const hovered = ref<number | null>(null);
 
 const RAMP = ' .:-=+*#%@';
-const FONT_SIZE = 11;
-const CELL_H = 12;
+const FONT_SIZE = 12;
+const CELL_H = 14;
+const TRACK = 2; // extra px between columns
+const PAD = 2; // empty columns at the left and right edges
+const GAP = 4; // columns between the scope and the readout
 const TURN = 4; // seconds per sweep
 const BAND: Record<Status, number> = {
     red: 0.28,
@@ -125,15 +128,25 @@ function readColors() {
     };
 }
 
+/** The scope is centred on a cell, so the rings and crosshair come out symmetric on the grid. */
 function geometry() {
-    const r = Math.max(24, height / 2 - 10);
+    const rows = Math.floor(height / CELL_H);
+    const centreRow = Math.floor(rows / 2);
+    const r = Math.max(24, Math.min((centreRow - 1) * CELL_H, width * 0.28));
+    const centreCol = PAD + Math.ceil(r / cellW);
 
     return {
-        cx: r + 12,
-        cy: height / 2,
+        cx: (centreCol + 0.5) * cellW,
+        cy: (centreRow + 0.5) * CELL_H,
         r,
-        readout: Math.ceil((2 * r + 18) / cellW),
+        rows,
+        readout: centreCol + Math.ceil(r / cellW) + GAP,
     };
+}
+
+/** Columns that can hold text, leaving the right-hand padding. */
+function usableCols(): number {
+    return Math.floor(width / cellW) - PAD;
 }
 
 function blipPosition(blip: (typeof blips.value)[number]) {
@@ -160,8 +173,9 @@ function resize() {
     el.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = `${FONT_SIZE}px ${getComputedStyle(el).fontFamily}`;
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    cellW = ctx.measureText('M').width || 7;
+    cellW = (ctx.measureText('M').width || 7) + TRACK;
     draw();
 }
 
@@ -174,12 +188,22 @@ function glyph(
 ) {
     ctx!.globalAlpha = Math.min(1, alpha);
     ctx!.fillStyle = color;
-    ctx!.fillText(text, col * cellW, row * CELL_H + CELL_H / 2);
+
+    // One character per cell, so text lines up with the scope and with each other.
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] !== ' ') {
+            ctx!.fillText(
+                text[i],
+                (col + i + 0.5) * cellW,
+                (row + 0.5) * CELL_H,
+            );
+        }
+    }
 }
 
 /** Cut text to what fits right of a column. */
 function fit(text: string, col: number): string {
-    return text.slice(0, Math.max(0, Math.floor(width / cellW) - col));
+    return text.slice(0, Math.max(0, usableCols() - col));
 }
 
 function step(dt: number) {
@@ -208,12 +232,11 @@ function step(dt: number) {
     }
 
     // Heartbeat, 20 samples a second: a beat every second, a tall one after the sweep hits a red service.
-    const cols = Math.max(0, Math.floor(width / cellW) - geometry().readout);
+    const cols = Math.max(0, usableCols() - geometry().readout);
     ecgClock += dt;
 
     while (ecgClock >= 0.05) {
         ecgClock -= 0.05;
-        const k = samples++ % 20;
         ecg.push([0, 1, beat > 0 ? 3 : 2, 0, -1][samples++ % 20] ?? 0);
     }
 
@@ -236,9 +259,8 @@ function draw() {
     }
 
     ctx.clearRect(0, 0, width, height);
-    const { cx, cy, r, readout } = geometry();
+    const { cx, cy, r, rows, readout } = geometry();
     const sweep = (time / TURN) * Math.PI * 2;
-    const rows = Math.floor(height / CELL_H);
     const firstCol = Math.floor((cx - r) / cellW);
     const lastCol = Math.ceil((cx + r) / cellW);
     const tick = Math.floor(time * 8);
@@ -368,10 +390,7 @@ function draw() {
 
     // 3. Readout: what the scope shows, in words.
     const left = readout;
-    const barCells = Math.max(
-        4,
-        Math.min(12, Math.floor(width / cellW) - left - 14),
-    );
+    const barCells = Math.max(4, Math.min(12, usableCols() - left - 14));
     const total = Math.max(1, props.services.length);
     const degrees = String(
         Math.floor(((sweep * 180) / Math.PI) % 360),
@@ -379,21 +398,21 @@ function draw() {
     glyph(
         fit(`fleet scan · ${props.services.length} svc`, left),
         left,
-        0,
+        1,
         colors.ink,
         1,
     );
     glyph(
         `sweep ${degrees}° · pass ${String(passes).padStart(3, '0')}`,
         left,
-        1,
+        2,
         colors.muted,
         1,
     );
 
     statusOrder.forEach((status, index) => {
         const filled = Math.round((counts.value[status] / total) * barCells);
-        const row = 3 + index;
+        const row = 4 + index;
         glyph(GLYPH[status], left, row, colors.status[status], 1);
         glyph(status.padEnd(8), left + 2, row, colors.ink, 1);
         glyph('#'.repeat(filled), left + 10, row, colors.status[status], 1);
@@ -418,19 +437,19 @@ function draw() {
     );
 
     if (focus) {
-        glyph('>', left, 8, colors.status[focus.status], 1);
+        glyph('>', left, 9, colors.status[focus.status], 1);
         glyph(
             fit(
                 `${focus.name.slice(0, 12)} ${focus.status}${focus.advisories ? ` · ${focus.advisories} adv` : ''}`,
                 left + 2,
             ),
             left + 2,
-            8,
+            9,
             colors.ink,
             1,
         );
     } else {
-        glyph(fit('> no contacts, all clear', left), left, 8, colors.muted, 1);
+        glyph(fit('> no contacts, all clear', left), left, 9, colors.muted, 1);
     }
 
     glyph(
@@ -441,13 +460,13 @@ function draw() {
             left,
         ),
         left,
-        9,
+        10,
         colors.muted,
         0.8,
     );
 
     // 4. Heartbeat along the bottom.
-    const base = rows - 2;
+    const base = rows - 3;
     ecg.forEach((value, index) => {
         const previous = ecg[index - 1] ?? 0;
         const color =

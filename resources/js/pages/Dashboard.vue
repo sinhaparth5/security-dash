@@ -427,7 +427,7 @@ function dependencyBreakdown(service: MonitoredService) {
             <FleetRadar
                 v-if="services.length > 0"
                 :services="services"
-                class="h-48 w-full overflow-hidden rounded-lg border bg-card shadow-card"
+                class="h-60 w-full overflow-hidden rounded-lg border bg-card shadow-card"
             />
         </header>
 
