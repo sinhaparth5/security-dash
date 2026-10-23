@@ -5,6 +5,7 @@ use App\Enums\ServiceStatus;
 use App\Jobs\EvaluateService;
 use App\Models\Advisory;
 use App\Models\Dependency;
+use App\Models\RiskAcceptance;
 use App\Models\Service;
 use App\Models\User;
 use App\Notifications\ServiceTurnedRed;
@@ -21,14 +22,16 @@ beforeEach(function () {
 /**
  * @param  list<list<array{id: string, modified: string}>>  $vulnsPerQuery
  */
-function fakeUpstream(array $vulnsPerQuery, string $npmLatest = '4.17.21'): void
+function fakeUpstream(array $vulnsPerQuery, string $npmLatest = '4.17.21', string $osvId = 'GHSA-29mw-wpgm-hmr9', array $kev = [], array $epss = []): void
 {
     Http::fake([
+        'www.cisa.gov/*' => Http::response(['vulnerabilities' => array_map(fn (string $cve) => ['cveID' => $cve], $kev)]),
+        'api.first.org/*' => Http::response(['data' => array_map(fn (string $cve, float $score) => ['cve' => $cve, 'epss' => (string) $score], array_keys($epss), $epss)]),
         'api.osv.dev/v1/querybatch' => Http::response([
             'results' => array_map(fn (array $vulns) => ['vulns' => $vulns], $vulnsPerQuery),
         ]),
         'api.osv.dev/v1/vulns/*' => Http::response([
-            'id' => 'GHSA-29mw-wpgm-hmr9',
+            'id' => $osvId,
             'summary' => 'ReDoS in lodash',
             'aliases' => ['CVE-2020-28500'],
             'database_specific' => ['severity' => 'MODERATE'],
@@ -164,4 +167,101 @@ test('a service that was already red does not mail again', function () {
     EvaluateService::dispatchSync($dependency->service);
 
     Notification::assertNothingSent();
+});
+
+test('advisories in CISA KEV are marked and get their EPSS score', function () {
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]], kev: ['CVE-2020-28500'], epss: ['CVE-2020-28500' => 0.42]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    $advisory = $dependency->advisories()->sole();
+    expect($advisory->known_exploited)->toBeTrue();
+    expect($advisory->epss)->toBe(0.42);
+});
+
+test('a KEV or EPSS outage still grades the service, just without the badges', function () {
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Http::fake(['www.cisa.gov/*' => Http::response('', 503), 'api.first.org/*' => Http::response('', 503)]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Red);
+    expect($dependency->advisories()->sole()->known_exploited)->toBeFalse();
+});
+
+test('an accepted advisory no longer turns its dependency red', function () {
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->riskAcceptances()->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9', 'reason' => 'Not reachable']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]], npmLatest: '4.17.21');
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Yellow);
+    expect($dependency->advisories()->count())->toBe(1);
+});
+
+test('an expired acceptance counts again', function () {
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    RiskAcceptance::forceCreate(['service_id' => $dependency->service_id, 'osv_id' => 'GHSA-29mw-wpgm-hmr9', 'reason' => 'Until the fix ships', 'expires_at' => now()->subDay()]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Red);
+});
+
+test('an image whose findings are all accepted turns green', function () {
+    $service = Service::factory()->create();
+    $image = Dependency::factory()->for($service)->vulnerable()->create(['ecosystem' => Ecosystem::Image, 'name' => 'alpine', 'version' => '3.20']);
+    Advisory::factory()->for($image)->create(['osv_id' => 'CVE-2024-0001']);
+    $service->riskAcceptances()->create(['osv_id' => 'CVE-2024-0001', 'reason' => 'Package unused']);
+    fakeUpstream([]);
+
+    EvaluateService::dispatchSync($service);
+
+    expect($image->fresh()->status)->toBe(ServiceStatus::Green);
+    expect($service->fresh()->status)->toBe(ServiceStatus::Green);
+});
+
+test('a runtime past end of life turns red and records its end-of-life date', function () {
+    $runtime = Dependency::factory()->create(['ecosystem' => Ecosystem::Runtime, 'name' => 'node', 'version' => 'v18.20.4']);
+    Http::fake([
+        'nodejs.org/dist/index.json' => Http::response([['version' => 'v18.20.4', 'security' => false]]),
+        'endoflife.date/api/v1/products/nodejs' => Http::response(['result' => ['releases' => [['name' => '18', 'eolFrom' => '2025-04-30'], ['name' => '24', 'eolFrom' => '2028-04-30']]]]),
+    ]);
+    fakeUpstream([]);
+
+    EvaluateService::dispatchSync($runtime->service);
+
+    $runtime->refresh();
+    expect($runtime->status)->toBe(ServiceStatus::Red);
+    expect($runtime->eol_at->toDateString())->toBe('2025-04-30');
+    expect($runtime->advisories()->sole()->osv_id)->toBe('EOL-node-18');
+});
+
+test('each status change is recorded once', function () {
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.21']);
+    fakeUpstream([[]]);
+
+    EvaluateService::dispatchSync($dependency->service);
+    EvaluateService::dispatchSync($dependency->service);
+
+    $service = $dependency->service->fresh();
+    expect($service->statusChanges()->pluck('status')->all())->toBe([ServiceStatus::Green]);
+    expect($service->status_changed_at)->not->toBeNull();
+    expect($service->evaluated_at)->not->toBeNull();
+});
+
+test('a malicious package mails everyone even when the service was already red', function () {
+    Notification::fake();
+    User::factory()->create();
+    $dependency = Dependency::factory()->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->update(['status' => ServiceStatus::Red]);
+    fakeUpstream([[['id' => 'MAL-2026-7299', 'modified' => '2026-10-01T00:00:00Z']]], osvId: 'MAL-2026-7299');
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    Notification::assertCount(1);
 });

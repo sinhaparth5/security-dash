@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Form, Head, Link, router } from '@inertiajs/vue3';
 import {
     ArrowRight,
+    Clock,
     KeyRound,
+    Network,
     MousePointerClick,
     Plus,
     Search,
@@ -12,15 +14,21 @@ import {
 import { computed, ref, watch } from 'vue';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
+import InputError from '@/components/InputError.vue';
 import ServiceConnection from '@/components/ServiceConnection.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { lastSeen, plural } from '@/lib/format';
 import { statusMeta } from '@/lib/status';
 import { index as tokensIndex } from '@/routes/tokens';
-import type { ServiceConnectionDetails, ServiceSummary } from '@/types';
+import type {
+    ServiceConnectionDetails,
+    ServiceSummary,
+    ServiceToken,
+} from '@/types';
 
 defineOptions({
     layout: {
@@ -58,6 +66,24 @@ function select(service: ServiceSummary) {
 // Held locally: flash data is gone after the next visit, and the token is never shown again.
 const issuedToken = ref<string | null>(null);
 const issuing = ref(false);
+const expiresInDays = ref('');
+
+const UNUSED_AFTER_DAYS = 30;
+
+function isUnused(token: ServiceToken): boolean {
+    const lastActivity = new Date(
+        token.last_used_at ?? token.created_at ?? Date.now(),
+    ).getTime();
+
+    return Date.now() - lastActivity > UNUSED_AFTER_DAYS * 86_400_000;
+}
+
+function isExpired(token: ServiceToken): boolean {
+    return (
+        token.expires_at !== null &&
+        new Date(token.expires_at).getTime() < Date.now()
+    );
+}
 
 watch(
     () => props.selected?.id,
@@ -67,7 +93,7 @@ watch(
 function issueToken(service: ServiceConnectionDetails): void {
     router.post(
         TokenController.store.url(service.id),
-        {},
+        { expires_in_days: expiresInDays.value || null },
         {
             preserveScroll: true,
             preserveState: true,
@@ -223,13 +249,27 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                         }}</Badge>
                         <StatusBadge :status="selected.status" />
                     </div>
-                    <div class="flex flex-wrap gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
                         <Button variant="outline" as-child>
                             <Link :href="ServiceController.show(selected.id)">
                                 Dependencies
                                 <ArrowRight aria-hidden="true" />
                             </Link>
                         </Button>
+                        <label for="token-expiry" class="sr-only"
+                            >New token expires</label
+                        >
+                        <select
+                            id="token-expiry"
+                            v-model="expiresInDays"
+                            class="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                        >
+                            <option value="">Never expires</option>
+                            <option value="30">Expires in 30 days</option>
+                            <option value="90">Expires in 90 days</option>
+                            <option value="180">Expires in 180 days</option>
+                            <option value="365">Expires in 1 year</option>
+                        </select>
                         <Button
                             :disabled="issuing"
                             @click="issueToken(selected)"
@@ -295,8 +335,26 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                             class="flex items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm"
                         >
                             <div>
-                                <div class="font-mono font-medium">
+                                <div
+                                    class="flex flex-wrap items-center gap-2 font-mono font-medium"
+                                >
                                     #{{ token.id }}
+                                    <Badge
+                                        v-if="isExpired(token)"
+                                        variant="outline"
+                                        class="font-sans"
+                                        :class="statusMeta.red.text"
+                                        >Expired</Badge
+                                    >
+                                    <Badge
+                                        v-else-if="isUnused(token)"
+                                        variant="outline"
+                                        class="gap-1 font-sans"
+                                        :class="statusMeta.yellow.text"
+                                    >
+                                        <Clock aria-hidden="true" />
+                                        Unused {{ UNUSED_AFTER_DAYS }}+ days
+                                    </Badge>
                                 </div>
                                 <div class="text-xs text-muted-foreground">
                                     Created
@@ -310,6 +368,12 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                                                   token.last_used_at,
                                               ).toLowerCase()
                                             : 'never'
+                                    }}
+                                    ·
+                                    {{
+                                        token.expires_at
+                                            ? `expires ${lastSeen(token.expires_at).toLowerCase()}`
+                                            : 'never expires'
                                     }}
                                 </div>
                             </div>
@@ -329,7 +393,70 @@ function revoke(service: ServiceConnectionDetails, token: number): void {
                             </Button>
                         </li>
                     </ul>
+                    <p
+                        v-if="selected.tokens.some(isUnused)"
+                        class="text-sm text-muted-foreground"
+                    >
+                        Tokens unused for {{ UNUSED_AFTER_DAYS }} days are
+                        likely left over from an old deploy. Revoke them unless
+                        you know where they live.
+                    </p>
                 </div>
+
+                <Form
+                    :key="selected.id"
+                    v-bind="TokenController.updateAllowedIps.form(selected.id)"
+                    :options="{
+                        preserveScroll: true,
+                        preserveState: true,
+                        only: ['selected'],
+                    }"
+                    class="flex flex-col gap-3"
+                    v-slot="{ errors, processing }"
+                >
+                    <h3 class="flex items-center gap-2 font-semibold">
+                        <Network
+                            class="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        <Label for="allowed-ips" class="text-base"
+                            >IP allowlist</Label
+                        >
+                    </h3>
+                    <p
+                        id="allowed-ips-help"
+                        class="-mt-1 text-sm text-muted-foreground"
+                    >
+                        IPs or CIDR ranges this service reports from, one per
+                        line. Requests from anywhere else get 403 even with a
+                        valid token. Leave empty to allow any address.
+                    </p>
+                    <textarea
+                        id="allowed-ips"
+                        name="allowed_ips"
+                        rows="3"
+                        aria-describedby="allowed-ips-help"
+                        :value="selected.allowed_ips.join('\n')"
+                        placeholder="10.0.0.0/8"
+                        class="w-full max-w-md rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                    />
+                    <InputError
+                        :message="
+                            errors.allowed_ips ??
+                            Object.entries(errors).find(([key]) =>
+                                key.startsWith('allowed_ips.'),
+                            )?.[1]
+                        "
+                    />
+                    <Button
+                        type="submit"
+                        variant="outline"
+                        class="w-fit"
+                        :disabled="processing"
+                    >
+                        {{ processing ? 'Saving…' : 'Save allowlist' }}
+                    </Button>
+                </Form>
             </section>
         </div>
     </div>

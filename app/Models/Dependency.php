@@ -20,10 +20,11 @@ use Illuminate\Support\Carbon;
  * @property string $version
  * @property string|null $latest_version
  * @property ServiceStatus $status
+ * @property Carbon|null $eol_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['ecosystem', 'name', 'version', 'latest_version', 'status'])]
+#[Fillable(['ecosystem', 'name', 'version', 'latest_version', 'status', 'eol_at'])]
 class Dependency extends Model
 {
     /** @use HasFactory<DependencyFactory> */
@@ -55,6 +56,7 @@ class Dependency extends Model
         return [
             'ecosystem' => Ecosystem::class,
             'status' => ServiceStatus::class,
+            'eol_at' => 'date',
         ];
     }
 }

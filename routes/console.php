@@ -13,3 +13,5 @@ Artisan::command('inspire', function () {
 Schedule::call(fn () => Service::query()->each(fn (Service $service) => EvaluateService::dispatch($service)))
     ->name('evaluate-services')
     ->hourly();
+
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

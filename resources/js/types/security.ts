@@ -7,6 +7,32 @@ export type Advisory = {
     severity: string | null;
     summary: string | null;
     fixed_version: string | null;
+    malicious: boolean;
+    known_exploited: boolean;
+    epss: number | null;
+    accepted: boolean;
+};
+
+export type RiskAcceptance = {
+    id: number;
+    osv_id: string;
+    reason: string;
+    expires_at: string | null;
+    active: boolean;
+    accepted_by: string | null;
+    created_at: string | null;
+};
+
+export type StatusChange = {
+    id: number;
+    status: Status;
+    created_at: string;
+};
+
+export type Pipeline = {
+    last_evaluated_at: string | null;
+    stalled: boolean;
+    failed_jobs: number;
 };
 
 export type Dependency = {
@@ -16,6 +42,8 @@ export type Dependency = {
     version: string;
     latest_version: string | null;
     status: Status;
+    eol_at: string | null;
+    malicious: boolean;
     advisories: Advisory[];
 };
 
@@ -24,9 +52,13 @@ export type MonitoredService = {
     name: string;
     environment: string;
     status: Status;
+    status_changed_at: string | null;
+    evaluated_at: string | null;
     last_ping_at: string | null;
     is_stale: boolean;
+    malicious: boolean;
     dependencies: Dependency[];
+    risk_acceptances: RiskAcceptance[];
 };
 
 export type IssuedServiceToken = {
@@ -50,6 +82,7 @@ export type ServiceConnectionDetails = {
     environment: string;
     status: Status;
     last_ping_at: string | null;
+    allowed_ips: string[];
     tokens: ServiceToken[];
 };
 
@@ -57,4 +90,15 @@ export type ServiceToken = {
     id: number;
     created_at: string | null;
     last_used_at: string | null;
+    expires_at: string | null;
+};
+
+export type AuditEvent = {
+    id: number;
+    action: string;
+    details: Record<string, unknown> | null;
+    ip: string | null;
+    created_at: string;
+    user: string | null;
+    service: { id: number; name: string; environment: string } | null;
 };

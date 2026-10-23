@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AuditEvent;
 use App\Models\Service;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -21,7 +22,14 @@ class IssueServiceToken extends Command
             'environment' => $this->argument('environment'),
         ]);
 
-        $token = $service->createToken('heartbeat')->plainTextToken;
+        $issued = $service->createToken('heartbeat');
+        $token = $issued->plainTextToken;
+
+        if ($service->wasRecentlyCreated) {
+            AuditEvent::record('service.registered', $service, ['via' => 'console']);
+        }
+
+        AuditEvent::record('token.issued', $service, ['token_id' => $issued->accessToken->id, 'via' => 'console']);
 
         $this->info("Token for {$service->name} ({$service->environment}). It will not be shown again:");
         $this->line($token);

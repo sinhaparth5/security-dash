@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureServiceIpAllowed;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -20,6 +22,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // ponytail: trusts any proxy since the container is only reachable through the reverse proxy; pin its IP if it is ever exposed directly.
         $middleware->trustProxies(at: '*');
+
+        $middleware->append(SecurityHeaders::class);
+        $middleware->alias(['service.ip' => EnsureServiceIpAllowed::class]);
 
         $middleware->web(append: [
             HandleAppearance::class,

@@ -65,7 +65,8 @@ return [
     |
     */
 
-    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
+    // "pw_" lets secret scanning recognise leaked tokens: id|pw_ + 48 characters.
+    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', 'pw_'),
 
     /*
     |--------------------------------------------------------------------------

@@ -73,6 +73,70 @@ class Releases
     }
 
     /**
+     * When the running runtime's release line stops getting security fixes, from endoflife.date.
+     * Null for anything that is not a Node or Go runtime, or a line endoflife.date does not list.
+     */
+    public function endOfLife(Dependency $dependency): ?string
+    {
+        if ($dependency->ecosystem !== Ecosystem::Runtime) {
+            return null;
+        }
+
+        $product = match ($dependency->name) {
+            'node' => 'nodejs',
+            'go' => 'go',
+            default => null,
+        };
+
+        if ($product === null) {
+            return null;
+        }
+
+        // Node lines are majors ("22"), Go lines are minors ("1.25").
+        $parts = explode('.', self::normalize($dependency->version));
+        $cycle = implode('.', array_slice($parts, 0, $product === 'go' ? 2 : 1));
+
+        return $this->endOfLifeDates($product)[$cycle] ?? null;
+    }
+
+    /**
+     * A synthetic advisory once the runtime's release line is past end of life:
+     * no more security fixes means every future advisory stays unpatched.
+     *
+     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null}|null
+     */
+    public function endOfLifeAdvisory(Dependency $dependency, ?string $endOfLife): ?array
+    {
+        if ($endOfLife === null || $endOfLife > now()->toDateString()) {
+            return null;
+        }
+
+        $line = $dependency->name === 'go'
+            ? implode('.', array_slice(explode('.', self::normalize($dependency->version)), 0, 2))
+            : $this->major(self::normalize($dependency->version));
+
+        return [
+            'osv_id' => "EOL-{$dependency->name}-{$line}",
+            'aliases' => [],
+            'severity' => 'HIGH',
+            'summary' => ucfirst($dependency->name)." {$line} reached end of life on {$endOfLife} and no longer gets security fixes. Move to a supported release line.",
+            'fixed_version' => null,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function endOfLifeDates(string $product): array
+    {
+        return Cache::remember("upstream:eol:{$product}", now()->addDay(), fn () => Http::acceptJson()->timeout(15)->retry(2, 500)
+            ->get("https://endoflife.date/api/v1/products/{$product}")->throw()->collect('result.releases')
+            ->filter(fn (array $release) => is_string($release['eolFrom'] ?? null))
+            ->mapWithKeys(fn (array $release) => [(string) $release['name'] => $release['eolFrom']])
+            ->all());
+    }
+
+    /**
      * @param  list<string>  $versions
      */
     private function latestInLine(array $versions, string $current, int $lineParts): ?string

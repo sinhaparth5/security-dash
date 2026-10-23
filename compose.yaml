@@ -50,6 +50,28 @@ services:
         healthcheck:
             disable: true
 
+    # Daily pg_dump to ./backups, keeping 14 days. Copy that directory off the host.
+    backup:
+        image: postgres:18-alpine
+        restart: unless-stopped
+        environment:
+            PGHOST: db
+            PGDATABASE: ${DB_DATABASE:?set DB_DATABASE in .env.production}
+            PGUSER: ${DB_USERNAME:?set DB_USERNAME in .env.production}
+            PGPASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.production}
+        volumes:
+            - ./backups:/backups
+        entrypoint:
+            [
+                'sh',
+                '-c',
+                'while true; do pg_dump -Fc > /backups/$${PGDATABASE}-$$(date +%F).dump && find /backups -name "*.dump" -mtime +14 -delete; sleep 86400; done',
+            ]
+        depends_on:
+            db:
+                condition: service_healthy
+        security_opt:
+            - no-new-privileges:true
     db:
         image: postgres:18-alpine
         restart: unless-stopped

@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { Head, Link, usePoll } from '@inertiajs/vue3';
-import { ArrowLeft, Clock, ExternalLink, KeyRound, Wrench } from '@lucide/vue';
-import { computed } from 'vue';
+import { Form, Head, Link, router, usePoll } from '@inertiajs/vue3';
+import { useClipboard } from '@vueuse/core';
+import {
+    ArrowLeft,
+    Check,
+    Clock,
+    Copy,
+    ExternalLink,
+    History,
+    KeyRound,
+    ShieldCheck,
+    Skull,
+    Wrench,
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAcceptanceController';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
+import InputError from '@/components/InputError.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Table,
     TableBody,
@@ -17,7 +33,13 @@ import {
 import { lastSeen, plural } from '@/lib/format';
 import { statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
-import type { MonitoredService } from '@/types';
+import type {
+    Advisory,
+    Dependency,
+    MonitoredService,
+    RiskAcceptance,
+    StatusChange,
+} from '@/types';
 
 defineOptions({
     layout: {
@@ -32,9 +54,10 @@ defineOptions({
 
 const props = defineProps<{
     service: MonitoredService;
+    history: StatusChange[];
 }>();
 
-usePoll(60_000, { only: ['service'] });
+usePoll(60_000, { only: ['service', 'history'] });
 
 const groups = computed(() =>
     statusOrder.map((status) => ({
@@ -55,9 +78,105 @@ const severityClass: Record<string, string> = {
 };
 
 function advisoryUrl(osvId: string): string | null {
-    return osvId.startsWith('NODE-')
+    return osvId.startsWith('NODE-') || osvId.startsWith('EOL-')
         ? null
         : `https://osv.dev/vulnerability/${encodeURIComponent(osvId)}`;
+}
+
+function epssLabel(epss: number): string {
+    return `${(epss * 100).toFixed(epss < 0.1 ? 1 : 0)}%`;
+}
+
+const DAY = 86_400_000;
+
+function endOfLife(
+    dependency: Dependency,
+): { label: string; past: boolean } | null {
+    if (!dependency.eol_at) {
+        return null;
+    }
+
+    const days = Math.ceil(
+        (new Date(dependency.eol_at).getTime() - Date.now()) / DAY,
+    );
+
+    if (days <= 0) {
+        return { label: `End of life since ${dependency.eol_at}`, past: true };
+    }
+
+    return days <= 180
+        ? { label: `End of life in ${days} days`, past: false }
+        : null;
+}
+
+/**
+ * The highest version that clears every advisory still counted against the dependency.
+ */
+function fixVersion(dependency: Dependency): string | null {
+    return (
+        dependency.advisories
+            .filter((advisory) => !advisory.accepted)
+            .map((advisory) => advisory.fixed_version)
+            .filter((version): version is string => version !== null)
+            .sort((a, b) =>
+                b.localeCompare(a, undefined, { numeric: true }),
+            )[0] ?? null
+    );
+}
+
+const fixCommands = computed(() => {
+    const red = props.service.dependencies.filter(
+        (dependency) => dependency.status === 'red',
+    );
+    const pinned = (ecosystem: Dependency['ecosystem']) =>
+        red
+            .filter((dependency) => dependency.ecosystem === ecosystem)
+            .map((dependency) => ({
+                dependency,
+                version: fixVersion(dependency),
+            }))
+            .filter((fix) => fix.version !== null);
+
+    const npm = pinned('npm').map(
+        ({ dependency, version }) => `${dependency.name}@${version}`,
+    );
+    const go = pinned('go').map(
+        ({ dependency, version }) =>
+            `${dependency.name}@${version!.startsWith('v') ? version : `v${version}`}`,
+    );
+
+    return [
+        ...(npm.length ? [`npm install ${npm.join(' ')}`] : []),
+        ...(go.length ? [`go get ${go.join(' ')} && go mod tidy`] : []),
+    ];
+});
+
+const { copy, copied, text: copiedText } = useClipboard({ legacy: true });
+
+// One inline "accept risk" form open at a time, keyed by dependency and advisory.
+const accepting = ref<string | null>(null);
+
+function acceptKey(dependency: Dependency, advisory: Advisory): string {
+    return `${dependency.id}:${advisory.osv_id}`;
+}
+
+const tomorrow = new Date(Date.now() + DAY).toISOString().slice(0, 10);
+
+function revokeAcceptance(acceptance: RiskAcceptance): void {
+    router.delete(
+        RiskAcceptanceController.destroy.url({
+            service: props.service.id,
+            riskAcceptance: acceptance.id,
+        }),
+        {
+            preserveScroll: true,
+            only: ['service'],
+            onBefore: () =>
+                confirm(
+                    `Count ${acceptance.osv_id} against ${props.service.name} again?`,
+                ),
+        },
+    );
 }
 </script>
 
@@ -106,6 +225,18 @@ function advisoryUrl(osvId: string): string | null {
                 </span>
                 Last report
                 {{ lastSeen(service.last_ping_at).toLowerCase() }} ·
+                <template v-if="service.status_changed_at">
+                    {{ statusMeta[service.status].label }} since
+                    {{ lastSeen(service.status_changed_at).toLowerCase() }}
+                    ·
+                </template>
+                Graded
+                {{
+                    service.evaluated_at
+                        ? lastSeen(service.evaluated_at).toLowerCase()
+                        : 'not yet'
+                }}
+                ·
                 {{
                     plural(
                         service.dependencies.length,
@@ -115,6 +246,71 @@ function advisoryUrl(osvId: string): string | null {
                 }}
             </p>
         </header>
+
+        <div
+            v-if="service.malicious"
+            role="alert"
+            class="flex gap-3 rounded-xl border border-status-critical bg-status-critical-soft p-4 text-sm"
+        >
+            <Skull
+                class="mt-0.5 size-5 shrink-0 text-status-critical"
+                aria-hidden="true"
+            />
+            <div>
+                <p class="font-semibold text-status-critical">
+                    Malicious package detected
+                </p>
+                <p class="mt-1 leading-relaxed">
+                    OSV reports a dependency below as malware, not just a bug.
+                    Treat every machine that installed it as compromised: remove
+                    the package, rebuild from a clean state, and rotate any
+                    secrets it could read.
+                </p>
+            </div>
+        </div>
+
+        <section
+            v-if="fixCommands.length"
+            aria-labelledby="fix-heading"
+            class="flex flex-col gap-2 rounded-xl border bg-card p-4 shadow-xs"
+        >
+            <h2 id="fix-heading" class="flex items-center gap-2 font-semibold">
+                <Wrench
+                    class="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                />
+                Fix the advisories
+            </h2>
+            <p class="text-sm text-muted-foreground">
+                Upgrades every vulnerable package to the lowest version that
+                clears all of its advisories. Run it in the service's repo.
+            </p>
+            <div
+                v-for="command in fixCommands"
+                :key="command"
+                class="flex items-start gap-2"
+            >
+                <pre
+                    class="min-w-0 flex-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs"
+                ><code>{{ command }}</code></pre>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    :aria-label="
+                        copied && copiedText === command
+                            ? 'Copied'
+                            : 'Copy command'
+                    "
+                    @click="copy(command)"
+                >
+                    <Check
+                        v-if="copied && copiedText === command"
+                        aria-hidden="true"
+                    />
+                    <Copy v-else aria-hidden="true" />
+                </Button>
+            </div>
+        </section>
 
         <nav
             aria-label="Dependency summary"
@@ -198,9 +394,18 @@ function advisoryUrl(osvId: string): string | null {
                         <div
                             class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
                         >
-                            <span class="font-medium break-all">{{
-                                dependency.name
-                            }}</span>
+                            <span
+                                class="flex flex-wrap items-center gap-2 font-medium break-all"
+                            >
+                                {{ dependency.name }}
+                                <Badge
+                                    v-if="dependency.malicious"
+                                    class="gap-1 border-transparent bg-status-critical text-status-critical-foreground"
+                                >
+                                    <Skull aria-hidden="true" />
+                                    Malware
+                                </Badge>
+                            </span>
                             <span
                                 class="font-mono text-xs text-muted-foreground"
                                 >{{ dependency.ecosystem }}</span
@@ -237,7 +442,11 @@ function advisoryUrl(osvId: string): string | null {
                                 v-for="advisory in dependency.advisories"
                                 :key="advisory.id"
                                 class="rounded-md p-3 text-sm"
-                                :class="statusMeta.red.soft"
+                                :class="
+                                    advisory.accepted
+                                        ? 'border border-dashed opacity-75'
+                                        : statusMeta.red.soft
+                                "
                             >
                                 <div class="flex flex-wrap items-center gap-2">
                                     <a
@@ -272,6 +481,28 @@ function advisoryUrl(osvId: string): string | null {
                                         "
                                         >{{ advisory.severity }}</Badge
                                     >
+                                    <Badge
+                                        v-if="advisory.known_exploited"
+                                        class="border-transparent bg-status-critical text-status-critical-foreground"
+                                        title="Listed in CISA's Known Exploited Vulnerabilities catalog"
+                                        >Exploited in the wild</Badge
+                                    >
+                                    <Badge
+                                        v-if="advisory.epss !== null"
+                                        variant="outline"
+                                        class="font-mono"
+                                        :title="`EPSS: ${epssLabel(advisory.epss)} chance of exploitation in the next 30 days`"
+                                        >EPSS
+                                        {{ epssLabel(advisory.epss) }}</Badge
+                                    >
+                                    <Badge
+                                        v-if="advisory.accepted"
+                                        variant="outline"
+                                        class="gap-1"
+                                    >
+                                        <ShieldCheck aria-hidden="true" />
+                                        Risk accepted
+                                    </Badge>
                                 </div>
                                 <p
                                     v-if="advisory.aliases.length"
@@ -298,6 +529,101 @@ function advisoryUrl(osvId: string): string | null {
                                         advisory.fixed_version
                                     }}</span>
                                 </p>
+
+                                <div
+                                    v-if="
+                                        !advisory.accepted &&
+                                        !advisory.malicious &&
+                                        accepting !==
+                                            acceptKey(dependency, advisory)
+                                    "
+                                    class="mt-2"
+                                >
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        class="-ml-2 h-7"
+                                        @click="
+                                            accepting = acceptKey(
+                                                dependency,
+                                                advisory,
+                                            )
+                                        "
+                                    >
+                                        <ShieldCheck aria-hidden="true" />
+                                        Accept risk
+                                    </Button>
+                                </div>
+                                <Form
+                                    v-else-if="
+                                        accepting ===
+                                        acceptKey(dependency, advisory)
+                                    "
+                                    v-bind="
+                                        RiskAcceptanceController.store.form(
+                                            service.id,
+                                        )
+                                    "
+                                    :options="{
+                                        preserveScroll: true,
+                                        only: ['service'],
+                                    }"
+                                    class="mt-3 flex flex-col gap-3 rounded-md border bg-card p-3"
+                                    v-slot="{ errors, processing }"
+                                    @success="accepting = null"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="osv_id"
+                                        :value="advisory.osv_id"
+                                    />
+                                    <div class="grid gap-1.5">
+                                        <Label :for="`reason-${advisory.id}`"
+                                            >Why is this acceptable?</Label
+                                        >
+                                        <textarea
+                                            :id="`reason-${advisory.id}`"
+                                            v-focus
+                                            name="reason"
+                                            required
+                                            maxlength="1000"
+                                            rows="2"
+                                            placeholder="Not affected: we never call the vulnerable function."
+                                            class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
+                                        />
+                                        <InputError :message="errors.reason" />
+                                    </div>
+                                    <div class="grid gap-1.5">
+                                        <Label :for="`expires-${advisory.id}`"
+                                            >Re-check on (optional)</Label
+                                        >
+                                        <Input
+                                            :id="`expires-${advisory.id}`"
+                                            type="date"
+                                            name="expires_at"
+                                            :min="tomorrow"
+                                            class="w-fit"
+                                        />
+                                        <InputError
+                                            :message="errors.expires_at"
+                                        />
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <Button
+                                            type="submit"
+                                            size="sm"
+                                            :disabled="processing"
+                                            >Accept risk</Button
+                                        >
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            @click="accepting = null"
+                                            >Cancel</Button
+                                        >
+                                    </div>
+                                </Form>
                             </li>
                         </ul>
                     </li>
@@ -325,8 +651,22 @@ function advisoryUrl(osvId: string): string | null {
                             >
                                 <TableCell
                                     class="py-3 pl-4 font-medium break-all whitespace-normal"
-                                    >{{ dependency.name }}</TableCell
                                 >
+                                    {{ dependency.name }}
+                                    <Badge
+                                        v-if="endOfLife(dependency)"
+                                        variant="outline"
+                                        class="ml-2 gap-1 font-normal"
+                                        :class="
+                                            endOfLife(dependency)!.past
+                                                ? statusMeta.red.text
+                                                : statusMeta.yellow.text
+                                        "
+                                    >
+                                        <Clock aria-hidden="true" />
+                                        {{ endOfLife(dependency)!.label }}
+                                    </Badge>
+                                </TableCell>
                                 <TableCell
                                     class="hidden font-mono text-xs text-muted-foreground sm:table-cell"
                                     >{{ dependency.ecosystem }}</TableCell
@@ -353,5 +693,100 @@ function advisoryUrl(osvId: string): string | null {
                 </div>
             </section>
         </template>
+
+        <section
+            v-if="service.risk_acceptances.length"
+            aria-labelledby="accepted-heading"
+            class="flex flex-col gap-3"
+        >
+            <h2
+                id="accepted-heading"
+                class="flex items-center gap-2 text-lg font-semibold"
+            >
+                <ShieldCheck
+                    class="size-5 text-muted-foreground"
+                    aria-hidden="true"
+                />
+                Accepted risks
+                <span class="font-normal text-muted-foreground tabular-nums">{{
+                    service.risk_acceptances.length
+                }}</span>
+            </h2>
+            <ul class="grid gap-2 xl:grid-cols-2">
+                <li
+                    v-for="acceptance in service.risk_acceptances"
+                    :key="acceptance.id"
+                    class="flex items-start justify-between gap-3 rounded-lg border bg-card p-3 text-sm"
+                >
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-mono font-medium">{{
+                                acceptance.osv_id
+                            }}</span>
+                            <Badge
+                                v-if="!acceptance.active"
+                                variant="outline"
+                                :class="statusMeta.yellow.text"
+                                >Expired, counts again</Badge
+                            >
+                        </div>
+                        <p class="mt-1 leading-relaxed">
+                            {{ acceptance.reason }}
+                        </p>
+                        <p class="mt-1 text-xs text-muted-foreground">
+                            {{ acceptance.accepted_by ?? 'Someone' }} ·
+                            {{
+                                acceptance.expires_at
+                                    ? `until ${acceptance.expires_at}`
+                                    : 'no expiry'
+                            }}
+                        </p>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        @click="revokeAcceptance(acceptance)"
+                        >Remove</Button
+                    >
+                </li>
+            </ul>
+        </section>
+
+        <section
+            v-if="history.length"
+            aria-labelledby="history-heading"
+            class="flex flex-col gap-3"
+        >
+            <h2
+                id="history-heading"
+                class="flex items-center gap-2 text-lg font-semibold"
+            >
+                <History
+                    class="size-5 text-muted-foreground"
+                    aria-hidden="true"
+                />
+                Status history
+            </h2>
+            <ol class="flex flex-col gap-0 border-l pl-4">
+                <li
+                    v-for="change in history"
+                    :key="change.id"
+                    class="relative flex flex-wrap items-center gap-2 py-1.5 text-sm"
+                >
+                    <span
+                        class="absolute top-1/2 -left-[1.3rem] size-2.5 -translate-y-1/2 rounded-full border-2 border-background"
+                        :class="statusMeta[change.status].badge"
+                        aria-hidden="true"
+                    />
+                    <StatusBadge :status="change.status" />
+                    <time
+                        :datetime="change.created_at"
+                        :title="new Date(change.created_at).toLocaleString()"
+                        class="text-muted-foreground"
+                        >{{ lastSeen(change.created_at) }}</time
+                    >
+                </li>
+            </ol>
+        </section>
     </div>
 </template>

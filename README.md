@@ -2,25 +2,30 @@
 
 Patchwatch is an intranet dashboard that shows whether your deployed services are safe to keep running. Services report the runtime and dependency versions they actually run, and Patchwatch checks those versions against upstream release feeds and the [OSV](https://osv.dev) vulnerability database:
 
-| Status                        | Meaning                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| **Patch required** (red)      | A known advisory (CVE/GHSA) affects the running version             |
-| **Update available** (yellow) | A newer release exists, but no advisory affects the running version |
-| **Up to date** (green)        | Latest release, no known advisory                                   |
-| **Not evaluated**             | Untracked ecosystem, or no upstream data yet                        |
+| Status                        | Meaning                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| **Patch required** (red)      | A known advisory (CVE/GHSA) affects the running version, or the runtime is past end of life |
+| **Update available** (yellow) | A newer release exists, but no advisory affects the running version                         |
+| **Up to date** (green)        | Latest release, no known advisory                                                           |
+| **Not evaluated**             | Untracked ecosystem, or no upstream data yet                                                |
 
-A service takes the grade of its worst dependency. When a service first turns red, every dashboard user is emailed.
+A service takes the grade of its worst dependency. When a service first turns red, or a package OSV reports as **malware** (`MAL-` advisories) first shows up, every dashboard user is emailed.
+
+Advisories in CISA's [Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) catalog are marked **Exploited in the wild**, and each CVE shows its [EPSS](https://www.first.org/epss/) score (the chance of exploitation in the next 30 days), so you know what to fix first. On a service's page, **Accept risk** records why an advisory doesn't apply (with an optional re-check date); while accepted it no longer turns the dependency red.
 
 ## How it works
 
 ```
 services ──heartbeat──▶ POST /api/v1/telemetry/heartbeat ─┐
+CI (SBOM) ──CycloneDX─▶ POST /api/v1/telemetry/sbom ───────┤
 CI (Trivy) ─scan──────▶ POST /api/v1/telemetry/image-scan ─┤
                                                            ▼
                               EvaluateService job (queued; also hourly)
                                 ├─ OSV querybatch      → advisories
                                 ├─ npm registry / Go proxy → latest package versions
-                                └─ go.dev / nodejs.org → latest runtime releases
+                                ├─ go.dev / nodejs.org → latest runtime releases
+                                ├─ endoflife.date      → runtime end-of-life dates
+                                └─ CISA KEV / FIRST EPSS → exploitation signals
                                                            ▼
                                   database ──▶ dashboard (polls every minute)
 ```
@@ -29,8 +34,10 @@ CI (Trivy) ─scan──────▶ POST /api/v1/telemetry/image-scan ─┤
 - **npm** packages are checked against OSV and the npm registry.
 - The **Node runtime** is checked against the `nodejs.org` release index. A newer _security_ release in the same major line counts as red.
 - Runtimes are compared within their release line (Go minor, Node major), so a healthy LTS install isn't flagged just because a newer major exists.
+- A **Go or Node runtime past end of life** (from [endoflife.date](https://endoflife.date)) is red, and one within 180 days of it is flagged on the service page.
 - **Container images** keep the grade their latest Trivy scan gave them.
-- Upstream responses are cached. If an upstream is unavailable, the evaluation fails and retries, and the last grade stays in place. An outage is never read as "no advisories".
+- Upstream responses are cached. If an upstream is unavailable, the evaluation fails and retries, and the last grade stays in place. An outage is never read as "no advisories". KEV and EPSS are the exception: they only add badges, so an outage there just hides them until the next evaluation.
+- If no evaluation has finished for two hours, or queued jobs have failed, the dashboard shows a warning: check the queue worker and the scheduler.
 
 ## Requirements
 
@@ -65,7 +72,13 @@ npm run check:fix                                # fix frontend formatting and l
 
 On the dashboard, click **Register service** and enter a name and environment. Patchwatch creates the service and shows its token (once), the heartbeat and image-scan URLs, and copyable heartbeat and Trivy image-scan examples. Store the token as a secret in the service's environment. Registering an existing name and environment issues an extra token and leaves the old ones working.
 
-To rotate a token, open **Tokens** in the sidebar, select the service, click **Issue new token**, deploy the new token, then click **Revoke** on the old one. The same page shows the heartbeat and image-scan URLs. Each token shows when it was created and last used, so you can tell which one is live. A revoked token gets `401` from its next request.
+To rotate a token, open **Tokens** in the sidebar, select the service, click **Issue new token** (optionally with an expiry), deploy the new token, then click **Revoke** on the old one. The same page shows the heartbeat and image-scan URLs. Each token shows when it was created, last used and expires, and tokens unused for 30 days are flagged, so you can tell which one is live. A revoked or expired token gets `401` from its next request; expired ones are pruned daily.
+
+The same page has an **IP allowlist** per service: IPs or CIDR ranges it reports from. A token used from anywhere else gets `403`. The client IP comes from `X-Forwarded-For`, so the reverse proxy must set it.
+
+Tokens look like `42|pw_…` (set by `SANCTUM_TOKEN_PREFIX`). To have GitHub block a leaked one, add a [custom secret scanning pattern](https://docs.github.com/en/code-security/how-tos/secure-your-secrets/customize-leak-detection/define-custom-patterns) `[0-9]+\|pw_[A-Za-z0-9]{48}` and enable it in push protection. Tokens issued before the prefix existed keep working.
+
+Every sign-in, registration, token change, allowlist change and accepted risk is recorded in the **Audit log**.
 
 From a shell, `php artisan service:token billing-api production` does the same (on the VPS: `docker exec patchwatch-web php artisan service:token …`).
 
@@ -111,15 +124,29 @@ curl -X POST https://patchwatch.example.com/api/v1/telemetry/image-scan \
   --data-binary @scan.json
 ```
 
+### 4. Or send a CycloneDX SBOM from CI
+
+Instead of listing npm and Go packages in the heartbeat, CI can post a [CycloneDX](https://cyclonedx.org) JSON SBOM. Components with `pkg:npm/…` or `pkg:golang/…` package URLs replace the service's npm and Go dependencies; others are skipped. Runtime rows from heartbeats and image scans are left alone.
+
+```bash
+syft dir:. -o cyclonedx-json > sbom.json   # or cdxgen, cyclonedx-gomod, cyclonedx-npm
+
+curl -X POST https://patchwatch.example.com/api/v1/telemetry/sbom \
+  -H "Authorization: Bearer $PATCHWATCH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  --data-binary @sbom.json
+```
+
 ### API behaviour
 
-| Status | When                                                                            |
-| ------ | ------------------------------------------------------------------------------- |
-| `204`  | Report accepted                                                                 |
-| `401`  | Missing or invalid token                                                        |
-| `403`  | The token doesn't belong to a service (for example, a dashboard user's session) |
-| `422`  | Invalid payload. The body lists the field errors.                               |
-| `429`  | More than 60 requests per minute for this token. Respect `Retry-After`.         |
+| Status | When                                                                                                                                         |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `204`  | Report accepted                                                                                                                              |
+| `401`  | Missing or invalid token                                                                                                                     |
+| `403`  | The token doesn't belong to a service (for example, a dashboard user's session), or the request came from outside the service's IP allowlist |
+| `422`  | Invalid payload. The body lists the field errors.                                                                                            |
+| `429`  | More than 60 requests per minute for this token. Respect `Retry-After`.                                                                      |
 
 ## Deployment
 
@@ -144,7 +171,17 @@ If the migration fails, the deploy stops and the old containers keep running. To
 - **Deploy user:** must be in the `docker` group.
 - **Repository secrets:** `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `GHCR_USERNAME`, and `GHCR_TOKEN` (a token with `read:packages`).
 
-`compose.yaml` still describes a self-contained stack, with its own PostgreSQL, for running the production image somewhere else.
+`compose.yaml` still describes a self-contained stack, with its own PostgreSQL and a `backup` container that writes a daily `pg_dump` to `./backups` (kept 14 days), for running the production image somewhere else.
+
+**Backups:** on the VPS, dump the database daily from cron and copy the file off the box (the dumps hold every service's dependency list):
+
+```cron
+15 3 * * * docker exec goc-postgres pg_dump -U security_dash -Fc security_dash > /opt/patchwork/backups/patchwatch-$(date +\%F).dump && find /opt/patchwork/backups -name '*.dump' -mtime +14 -delete
+```
+
+Restore with `pg_restore --clean -d security_dash <file>`.
+
+**Security headers:** every response carries a nonce-based Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy, and HSTS when served over HTTPS. Set `SESSION_ENCRYPT=true` and `SESSION_SECURE_COOKIE=true` in production (both are in `.env.production.example`).
 
 ### Email alerts (Cloudflare Email Service)
 

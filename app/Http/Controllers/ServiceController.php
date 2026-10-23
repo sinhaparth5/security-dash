@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditEvent;
 use App\Models\Service;
+use App\Models\StatusChange;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,6 +19,11 @@ class ServiceController extends Controller
     {
         return Inertia::render('services/Show', [
             'service' => DashboardController::present($service->load(DashboardController::relations())),
+            'history' => $service->statusChanges()->latest('id')->limit(20)->get()->map(fn (StatusChange $change) => [
+                'id' => $change->id,
+                'status' => $change->status,
+                'created_at' => $change->created_at->toIso8601String(),
+            ]),
         ]);
     }
 
@@ -34,11 +41,18 @@ class ServiceController extends Controller
         ]);
 
         $service = Service::firstOrCreate($validated);
+        $token = $service->createToken('heartbeat');
+
+        if ($service->wasRecentlyCreated) {
+            AuditEvent::record('service.registered', $service);
+        }
+
+        AuditEvent::record('token.issued', $service, ['token_id' => $token->accessToken->id]);
 
         Inertia::flash('serviceToken', [
             'name' => $service->name,
             'environment' => $service->environment,
-            'token' => $service->createToken('heartbeat')->plainTextToken,
+            'token' => $token->plainTextToken,
             'existing' => ! $service->wasRecentlyCreated,
         ]);
 

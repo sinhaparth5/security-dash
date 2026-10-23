@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditEvent;
 use App\Models\User;
 use GuzzleHttp\Exception\ClientException;
 use Illuminate\Http\RedirectResponse;
@@ -44,6 +45,8 @@ class GithubLoginController extends Controller
         $allowedLogins = array_map(strtolower(...), config('services.github.allowed_logins'));
 
         if (! in_array(strtolower((string) $account->getNickname()), $allowedLogins, true)) {
+            AuditEvent::record('user.login_denied', details: ['github_login' => $account->getNickname()]);
+
             return $this->deny('This GitHub account is not allowed to use the dashboard.');
         }
 
@@ -55,6 +58,7 @@ class GithubLoginController extends Controller
 
         Auth::login($user, remember: true);
         $request->session()->regenerate();
+        AuditEvent::record('user.login', user: $user);
 
         return redirect()->intended(route('dashboard'));
     }

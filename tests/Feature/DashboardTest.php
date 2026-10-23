@@ -76,3 +76,47 @@ test('service page shows one service with its dependencies worst first', functio
 test('guests cannot open a service page', function () {
     $this->get(route('services.show', Service::factory()->create()))->assertRedirect(route('login'));
 });
+
+test('malware and actively exploited advisories sort first', function () {
+    $service = Service::factory()->create(['status' => ServiceStatus::Red]);
+    $plain = Dependency::factory()->for($service)->vulnerable()->create(['name' => 'a-plain']);
+    Advisory::factory()->for($plain)->create(['osv_id' => 'GHSA-1111-2222-3333']);
+    $exploited = Dependency::factory()->for($service)->vulnerable()->create(['name' => 'b-exploited']);
+    Advisory::factory()->for($exploited)->create(['osv_id' => 'GHSA-4444-5555-6666', 'known_exploited' => true]);
+    $malware = Dependency::factory()->for($service)->vulnerable()->create(['name' => 'c-malware']);
+    Advisory::factory()->for($malware)->create(['osv_id' => 'MAL-2026-1']);
+    Service::factory()->create(['name' => 'aaa-red', 'status' => ServiceStatus::Red]);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('services.0.id', $service->id)
+            ->where('services.0.malicious', true)
+            ->where('services.0.dependencies.0.name', 'c-malware')
+            ->where('services.0.dependencies.1.name', 'b-exploited')
+            ->where('services.0.dependencies.2.name', 'a-plain'));
+});
+
+test('the dashboard warns when grading has stalled', function (?string $evaluated, bool $stalled) {
+    Service::factory()->create(['created_at' => now()->subDay(), 'evaluated_at' => $evaluated === null ? null : now()->sub($evaluated)]);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('pipeline.stalled', $stalled)->where('pipeline.failed_jobs', 0));
+})->with([
+    'graded 10 minutes ago' => ['10 minutes', false],
+    'graded 3 hours ago' => ['3 hours', true],
+    'never graded' => [null, true],
+]);
+
+test('the service page includes its status history newest first', function () {
+    $service = Service::factory()->create();
+    $service->statusChanges()->create(['status' => ServiceStatus::Green, 'created_at' => now()->subDay()]);
+    $service->statusChanges()->create(['status' => ServiceStatus::Red]);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('services.show', $service))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('history.0.status', 'red')
+            ->where('history.1.status', 'green'));
+});

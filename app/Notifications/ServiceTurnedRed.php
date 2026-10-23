@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Enums\ServiceStatus;
+use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\Service;
 use Illuminate\Bus\Queueable;
@@ -43,10 +44,19 @@ class ServiceTurnedRed extends Notification implements ShouldQueue
             ->orderByDesc('advisories_count')
             ->get();
 
-        $message = (new MailMessage)
-            ->error()
-            ->subject("Security patch required: {$this->service->name} ({$this->service->environment})")
-            ->line("{$this->service->name} ({$this->service->environment}) is running versions with known security advisories.");
+        $malicious = $vulnerable->flatMap->advisories->filter(fn (Advisory $advisory) => $advisory->isMalicious());
+        $label = "{$this->service->name} ({$this->service->environment})";
+
+        $message = (new MailMessage)->error();
+
+        if ($malicious->isNotEmpty()) {
+            $message->subject("Malicious package detected: {$label}")
+                ->line("{$label} depends on a package OSV reports as malware ({$malicious->pluck('osv_id')->unique()->join(', ')}).")
+                ->line('Treat every machine that installed it as compromised: remove the package, rebuild from a clean state and rotate any secrets it could read.');
+        } else {
+            $message->subject("Security patch required: {$label}")
+                ->line("{$label} is running versions with known security advisories.");
+        }
 
         foreach ($vulnerable->take(self::LISTED_DEPENDENCIES) as $dependency) {
             $message->line($this->describe($dependency));

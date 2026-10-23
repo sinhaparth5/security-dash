@@ -17,14 +17,32 @@ use Illuminate\Support\Carbon;
  * @property string|null $severity
  * @property string|null $summary
  * @property string|null $fixed_version
+ * @property bool $known_exploited
+ * @property float|null $epss
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version'])]
+#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'known_exploited', 'epss'])]
 class Advisory extends Model
 {
     /** @use HasFactory<AdvisoryFactory> */
     use HasFactory;
+
+    /**
+     * OSV publishes malware reports under MAL- ids: the package itself is hostile, not just buggy.
+     */
+    public function isMalicious(): bool
+    {
+        return str_starts_with($this->osv_id, 'MAL-');
+    }
+
+    /**
+     * The CVE this advisory is about, from its id or aliases, for KEV and EPSS lookups.
+     */
+    public function cve(): ?string
+    {
+        return collect([$this->osv_id, ...$this->aliases])->first(fn (string $id) => str_starts_with($id, 'CVE-'));
+    }
 
     /**
      * @return BelongsTo<Dependency, $this>
@@ -43,6 +61,8 @@ class Advisory extends Model
     {
         return [
             'aliases' => 'array',
+            'known_exploited' => 'boolean',
+            'epss' => 'float',
         ];
     }
 }
