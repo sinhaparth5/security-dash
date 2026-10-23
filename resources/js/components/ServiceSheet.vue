@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { ChevronDown, ExternalLink, Wrench } from '@lucide/vue';
-import { computed } from 'vue';
+import { router } from '@inertiajs/vue3';
+import {
+    ChevronDown,
+    ExternalLink,
+    KeyRound,
+    Trash2,
+    Wrench,
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Collapsible,
     CollapsibleContent,
@@ -41,6 +50,25 @@ const groups = computed(() =>
 // Healthy dependencies stay folded so the drawer opens on what needs action.
 function startsOpen(status: Dependency['status']): boolean {
     return status === 'red' || status === 'yellow';
+}
+
+const revoking = ref<number | null>(null);
+
+function revoke(service: MonitoredService, token: number): void {
+    router.delete(
+        ServiceController.revokeToken.url({ service: service.id, token }),
+        {
+            preserveScroll: true,
+            preserveState: true,
+            only: ['services'],
+            onBefore: () =>
+                confirm(
+                    `Revoke token #${token} for ${service.name}? Anything still using it gets 401 from its next request.`,
+                ),
+            onStart: () => (revoking.value = token),
+            onFinish: () => (revoking.value = null),
+        },
+    );
 }
 
 const severityClass: Record<string, string> = {
@@ -88,6 +116,77 @@ function advisoryUrl(osvId: string): string | null {
                     </SheetDescription>
                     <StatusBadge :status="service.status" />
                 </SheetHeader>
+
+                <Collapsible class="group/section border-b">
+                    <CollapsibleTrigger
+                        class="flex w-full cursor-pointer items-center gap-2 px-5 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
+                    >
+                        <KeyRound
+                            class="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        API tokens
+                        <span class="text-muted-foreground tabular-nums">{{
+                            service.tokens.length
+                        }}</span>
+                        <ChevronDown
+                            class="ml-auto size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]/section:rotate-180"
+                            aria-hidden="true"
+                        />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <p
+                            v-if="service.tokens.length === 0"
+                            class="px-5 pb-4 text-sm text-muted-foreground"
+                        >
+                            No active tokens. This service can't report until
+                            you issue one with Register service.
+                        </p>
+                        <ul v-else class="space-y-2 px-5 pb-4">
+                            <li
+                                v-for="token in service.tokens"
+                                :key="token.id"
+                                class="flex items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm"
+                            >
+                                <div>
+                                    <div class="font-mono font-medium">
+                                        #{{ token.id }}
+                                    </div>
+                                    <div class="text-xs text-muted-foreground">
+                                        Created
+                                        {{
+                                            lastSeen(
+                                                token.created_at,
+                                            ).toLowerCase()
+                                        }}
+                                        · last used
+                                        {{
+                                            token.last_used_at
+                                                ? lastSeen(
+                                                      token.last_used_at,
+                                                  ).toLowerCase()
+                                                : 'never'
+                                        }}
+                                    </div>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    class="text-status-critical hover:text-status-critical"
+                                    :disabled="revoking === token.id"
+                                    @click="revoke(service, token.id)"
+                                >
+                                    <Trash2 aria-hidden="true" />
+                                    {{
+                                        revoking === token.id
+                                            ? 'Revoking…'
+                                            : 'Revoke'
+                                    }}
+                                </Button>
+                            </li>
+                        </ul>
+                    </CollapsibleContent>
+                </Collapsible>
 
                 <p
                     v-if="service.dependencies.length === 0"

@@ -26,5 +26,19 @@ export type MonitoredService = {
     status: Status;
     last_ping_at: string | null;
     is_stale: boolean;
+    tokens: ServiceToken[];
     dependencies: Dependency[];
+};
+
+export type IssuedServiceToken = {
+    name: string;
+    environment: string;
+    token: string;
+    existing: boolean;
+};
+
+export type ServiceToken = {
+    id: number;
+    created_at: string | null;
+    last_used_at: string | null;
 };

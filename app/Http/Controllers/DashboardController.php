@@ -8,6 +8,7 @@ use App\Models\Dependency;
 use App\Models\Service;
 use Inertia\Inertia;
 use Inertia\Response;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class DashboardController extends Controller
 {
@@ -25,7 +26,7 @@ class DashboardController extends Controller
 
         // ponytail: whole matrix in one prop, paginate or lazy-load the drawer past a few hundred services
         $services = Service::query()
-            ->with(['dependencies' => fn ($query) => $query->orderBy('name'), 'dependencies.advisories'])
+            ->with(['dependencies' => fn ($query) => $query->orderBy('name'), 'dependencies.advisories', 'tokens' => fn ($query) => $query->latest('id')])
             ->orderBy('name')
             ->get()
             ->sortBy(fn (Service $service) => $rank[$service->status->value])
@@ -36,6 +37,11 @@ class DashboardController extends Controller
                 'environment' => $service->environment,
                 'status' => $service->status,
                 'last_ping_at' => $service->last_ping_at?->toIso8601String(),
+                'tokens' => $service->tokens->map(fn (PersonalAccessToken $token) => [
+                    'id' => $token->id,
+                    'created_at' => $token->created_at?->toIso8601String(),
+                    'last_used_at' => $token->last_used_at?->toIso8601String(),
+                ]),
                 'is_stale' => $service->last_ping_at === null || $service->last_ping_at->lt(now()->subHours(self::STALE_AFTER_HOURS)),
                 'dependencies' => $service->dependencies
                     ->sortBy(fn (Dependency $dependency) => $rank[$dependency->status->value])

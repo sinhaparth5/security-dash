@@ -61,13 +61,13 @@ npm run check:fix                                # fix frontend formatting and l
 
 ## Reporting telemetry
 
-### 1. Issue a service token
+### 1. Register the service
 
-```bash
-php artisan service:token billing-api production
-```
+On the dashboard, click **Register service** and enter a name and environment. Patchwatch creates the service and shows its token (once), the heartbeat and image-scan URLs, and an example `curl`. Store the token as a secret in the service's environment. Registering an existing name and environment issues an extra token and leaves the old ones working.
 
-This registers the service if it's new and prints a token once. Store it as a secret in the service's environment.
+If a token leaks, open the service on the dashboard, expand **API tokens** and click **Revoke**. Each token shows when it was created and last used, so you can tell which one is live. A revoked token gets `401` from its next request.
+
+From a shell, `php artisan service:token billing-api production` does the same (on the VPS: `docker exec patchwatch-web php artisan service:token …`).
 
 ### 2. Send heartbeats
 

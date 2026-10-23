@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Head, usePoll } from '@inertiajs/vue3';
 import { useNow } from '@vueuse/core';
-import { Clock, Search, ServerOff, X } from '@lucide/vue';
+import { Clock, Plus, Search, ServerOff, X } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
 import ServiceSheet from '@/components/ServiceSheet.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +61,7 @@ const counts = computed(() =>
     ),
 );
 
+const registering = ref(false);
 const statusFilter = ref<Status | null>(null);
 const query = ref('');
 
@@ -129,20 +131,26 @@ function dependencyBreakdown(service: MonitoredService) {
                     checked against OSV and upstream releases.
                 </p>
             </div>
-            <p
-                class="flex items-center gap-1.5 text-xs text-muted-foreground"
-                aria-live="polite"
-            >
-                <span class="relative flex size-2" aria-hidden="true">
-                    <span
-                        class="absolute inline-flex size-full animate-ping rounded-full bg-status-ok opacity-60 motion-reduce:hidden"
-                    />
-                    <span
-                        class="relative inline-flex size-2 rounded-full bg-status-ok"
-                    />
-                </span>
-                Live · refreshed {{ refreshedLabel.toLowerCase() }}
-            </p>
+            <div class="flex flex-wrap items-center gap-4">
+                <p
+                    class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                    aria-live="polite"
+                >
+                    <span class="relative flex size-2" aria-hidden="true">
+                        <span
+                            class="absolute inline-flex size-full animate-ping rounded-full bg-status-ok opacity-60 motion-reduce:hidden"
+                        />
+                        <span
+                            class="relative inline-flex size-2 rounded-full bg-status-ok"
+                        />
+                    </span>
+                    Live · refreshed {{ refreshedLabel.toLowerCase() }}
+                </p>
+                <Button @click="registering = true">
+                    <Plus aria-hidden="true" />
+                    Register service
+                </Button>
+            </div>
         </header>
 
         <section
@@ -194,14 +202,14 @@ function dependencyBreakdown(service: MonitoredService) {
             />
             <h2 class="font-medium">No services are reporting yet</h2>
             <p class="max-w-md text-sm text-muted-foreground">
-                Issue a token for a service, then have it post its dependency
-                manifest to
+                Register a service to get its API token, then have it post its
+                dependency manifest to
                 <code class="font-mono">/api/v1/telemetry/heartbeat</code>.
             </p>
-            <code class="rounded-md bg-muted px-3 py-2 font-mono text-sm"
-                >php artisan service:token &lt;name&gt;
-                &lt;environment&gt;</code
-            >
+            <Button @click="registering = true">
+                <Plus aria-hidden="true" />
+                Register service
+            </Button>
         </section>
 
         <section v-else aria-label="Services" class="flex flex-col gap-3">
@@ -376,5 +384,6 @@ function dependencyBreakdown(service: MonitoredService) {
         </section>
 
         <ServiceSheet :service="selected" @close="selectedId = null" />
+        <RegisterServiceSheet v-model:open="registering" />
     </div>
 </template>
