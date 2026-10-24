@@ -13,6 +13,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('settings/integrations', [IntegrationController::class, 'edit'])->name('integrations.edit');
     Route::put('settings/integrations', [IntegrationController::class, 'update'])->name('integrations.update');
     Route::post('settings/integrations/webhook-test', [IntegrationController::class, 'testWebhook'])->middleware('throttle:5,1')->name('integrations.webhook-test');
+    Route::get('settings/integrations/github-app', [IntegrationController::class, 'createGithubApp'])->middleware('throttle:10,1')->name('integrations.github-app.callback');
+    Route::delete('settings/integrations/github-app', [IntegrationController::class, 'forgetGithubApp'])->name('integrations.github-app.destroy');
 
     Route::inertia('settings/appearance', 'settings/Appearance')->name('appearance.edit');
 });

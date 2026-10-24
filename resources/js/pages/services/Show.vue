@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { Form, Head, Link, router, usePoll } from '@inertiajs/vue3';
-import { useClipboard } from '@vueuse/core';
+import { Form, Head, Link, router, usePoll } from "@inertiajs/vue3";
+import { useClipboard } from "@vueuse/core";
 import {
     ArrowLeft,
+    Bot,
     CalendarClock,
+    CodeXml,
+    FileDown,
     Check,
     Clock,
     Copy,
@@ -19,21 +22,23 @@ import {
     Sparkles,
     TriangleAlert,
     Wrench,
-} from '@lucide/vue';
-import { computed, ref } from 'vue';
-import PullRequestController from '@/actions/App/Http/Controllers/PullRequestController';
-import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAcceptanceController';
-import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
-import ManifestGrid from '@/components/ascii/ManifestGrid.vue';
-import TokenController from '@/actions/App/Http/Controllers/TokenController';
-import DependencyRoute from '@/components/DependencyRoute.vue';
-import FixPlan from '@/components/FixPlan.vue';
-import InputError from '@/components/InputError.vue';
-import StatusBadge from '@/components/StatusBadge.vue';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+} from "@lucide/vue";
+import { computed, ref } from "vue";
+import PullRequestController from "@/actions/App/Http/Controllers/PullRequestController";
+import RiskAcceptanceController from "@/actions/App/Http/Controllers/RiskAcceptanceController";
+import ServiceController from "@/actions/App/Http/Controllers/ServiceController";
+import BomController from "@/actions/App/Http/Controllers/BomController";
+import TokenController from "@/actions/App/Http/Controllers/TokenController";
+import ManifestGrid from "@/components/ascii/ManifestGrid.vue";
+import DependencyRoute from "@/components/DependencyRoute.vue";
+import FixPlan from "@/components/FixPlan.vue";
+import InputError from "@/components/InputError.vue";
+import StatusBadge from "@/components/StatusBadge.vue";
+import SupplyChainBadges from "@/components/SupplyChainBadges.vue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
     Table,
     TableBody,
@@ -41,10 +46,10 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from '@/components/ui/table';
-import { lastSeen, packageUrl, plural, versionsUrl } from '@/lib/format';
-import { statusMeta, statusOrder } from '@/lib/status';
-import { dashboard } from '@/routes';
+} from "@/components/ui/table";
+import { lastSeen, packageUrl, plural, versionsUrl } from "@/lib/format";
+import { statusMeta, statusOrder } from "@/lib/status";
+import { dashboard } from "@/routes";
 import type {
     Advisory,
     AdvisoryTriage,
@@ -52,13 +57,13 @@ import type {
     MonitoredService,
     RiskAcceptance,
     StatusChange,
-} from '@/types';
+} from "@/types";
 
 defineOptions({
     layout: {
         breadcrumbs: [
             {
-                title: 'Service health',
+                title: "Service health",
                 href: dashboard(),
             },
         ],
@@ -73,13 +78,13 @@ const props = defineProps<{
     badgeUrl: string | null;
 }>();
 
-usePoll(60_000, { only: ['service', 'history'] });
+usePoll(60_000, { only: ["service", "history"] });
 
 /** A Yellow dependency with an open advisory has no fix released yet, so it gets a card too. */
 function hasCard(dependency: Dependency): boolean {
     return (
-        dependency.status === 'red' ||
-        (dependency.status === 'yellow' &&
+        dependency.status === "red" ||
+        (dependency.status === "yellow" &&
             dependency.advisories.some((advisory) => !advisory.accepted))
     );
 }
@@ -100,16 +105,16 @@ const groups = computed(() =>
 );
 
 const severityClass: Record<string, string> = {
-    CRITICAL: 'bg-status-critical text-status-critical-foreground',
-    HIGH: 'bg-status-critical/15 text-status-critical dark:bg-status-critical/35 dark:text-foreground',
+    CRITICAL: "bg-status-critical text-status-critical-foreground",
+    HIGH: "bg-status-critical/15 text-status-critical dark:bg-status-critical/35 dark:text-foreground",
     MODERATE:
-        'bg-status-warning/25 text-status-warning-foreground dark:text-status-warning',
-    MEDIUM: 'bg-status-warning/25 text-status-warning-foreground dark:text-status-warning',
-    LOW: 'bg-muted text-muted-foreground',
+        "bg-status-warning/25 text-status-warning-foreground dark:text-status-warning",
+    MEDIUM: "bg-status-warning/25 text-status-warning-foreground dark:text-status-warning",
+    LOW: "bg-muted text-muted-foreground",
 };
 
 function advisoryUrl(osvId: string): string | null {
-    return osvId.startsWith('NODE-') || osvId.startsWith('EOL-')
+    return osvId.startsWith("NODE-") || osvId.startsWith("EOL-")
         ? null
         : `https://osv.dev/vulnerability/${encodeURIComponent(osvId)}`;
 }
@@ -125,18 +130,18 @@ function dueLabel(advisory: Advisory): string {
     const left = new Date(advisory.due_at).getTime() - Date.now();
 
     if (advisory.overdue) {
-        return `Overdue by ${plural(Math.max(1, Math.floor(-left / DAY)), 'day', 'days')}`;
+        return `Overdue by ${plural(Math.max(1, Math.floor(-left / DAY)), "day", "days")}`;
     }
 
     const days = Math.ceil(left / DAY);
 
-    return days <= 1 ? 'Fix today' : `Fix within ${days} days`;
+    return days <= 1 ? "Fix today" : `Fix within ${days} days`;
 }
 
 const pullRequestMeta = {
-    open: { label: 'Upgrade PR open', icon: GitPullRequest },
-    merged: { label: 'PR merged, waiting for deploy', icon: GitMerge },
-    closed: { label: 'PR closed without merging', icon: GitPullRequestClosed },
+    open: { label: "Upgrade PR open", icon: GitPullRequest },
+    merged: { label: "PR merged, waiting for deploy", icon: GitMerge },
+    closed: { label: "PR closed without merging", icon: GitPullRequestClosed },
 };
 
 function endOfLife(
@@ -176,9 +181,9 @@ function fixVersion(dependency: Dependency): string | null {
 
 const fixCommands = computed(() => {
     const red = props.service.dependencies.filter(
-        (dependency) => dependency.status === 'red',
+        (dependency) => dependency.status === "red",
     );
-    const pinned = (ecosystem: Dependency['ecosystem']) =>
+    const pinned = (ecosystem: Dependency["ecosystem"]) =>
         red
             .filter((dependency) => dependency.ecosystem === ecosystem)
             .map((dependency) => ({
@@ -192,7 +197,7 @@ const fixCommands = computed(() => {
     const planned = new Set(
         props.service.fix_plan.flatMap((step) => step.fixes),
     );
-    const npm = pinned('npm')
+    const npm = pinned("npm")
         .filter(({ dependency }) =>
             dependency.advisories.some(
                 (advisory) =>
@@ -200,24 +205,24 @@ const fixCommands = computed(() => {
             ),
         )
         .map(({ dependency, version }) => `${dependency.name}@${version}`);
-    const go = pinned('go').map(
+    const go = pinned("go").map(
         ({ dependency, version }) =>
-            `${dependency.name}@${version!.startsWith('v') ? version : `v${version}`}`,
+            `${dependency.name}@${version!.startsWith("v") ? version : `v${version}`}`,
     );
 
     return [
-        ...(npm.length ? [`npm install ${npm.join(' ')}`] : []),
-        ...(go.length ? [`go get ${go.join(' ')} && go mod tidy`] : []),
+        ...(npm.length ? [`npm install ${npm.join(" ")}`] : []),
+        ...(go.length ? [`go get ${go.join(" ")} && go mod tidy`] : []),
     ];
 });
 
-const urgencyLabels = ['Routine', 'Soon', 'Urgent', 'Emergency'];
+const urgencyLabels = ["Routine", "Soon", "Urgent", "Emergency"];
 
-const actionLabels: Record<AdvisoryTriage['action'], string> = {
-    upgrade: 'upgrade',
-    investigate: 'check if affected',
-    accept: 'likely safe to accept',
-    replace: 'remove or replace',
+const actionLabels: Record<AdvisoryTriage["action"], string> = {
+    upgrade: "upgrade",
+    investigate: "check if affected",
+    accept: "likely safe to accept",
+    replace: "remove or replace",
 };
 
 /** Below this, Jev spread its answer across options, so the label says so. */
@@ -228,8 +233,8 @@ function triageLabel(triage: AdvisoryTriage): string {
     const unsure =
         Math.min(triage.urgency_confidence, triage.action_confidence) <
         CONFIDENT
-            ? ' (unsure)'
-            : '';
+            ? " (unsure)"
+            : "";
 
     return `${urgency}, ${actionLabels[triage.action]}${unsure}`;
 }
@@ -238,7 +243,7 @@ function canBump(dependency: Dependency): boolean {
     return (
         props.canOpenPullRequests &&
         props.service.repository !== null &&
-        ['npm', 'go'].includes(dependency.ecosystem) &&
+        ["npm", "go"].includes(dependency.ecosystem) &&
         fixVersion(dependency) !== null
     );
 }
@@ -254,7 +259,7 @@ function openPullRequest(dependency: Dependency): void {
         {},
         {
             preserveScroll: true,
-            only: ['service'],
+            only: ["service"],
             onStart: () => (openingPullRequest.value = dependency.id),
             onFinish: () => (openingPullRequest.value = null),
         },
@@ -273,11 +278,11 @@ function rotateBadge(): void {
         {},
         {
             preserveScroll: true,
-            only: ['badgeUrl'],
+            only: ["badgeUrl"],
             onBefore: () =>
                 props.badgeUrl === null ||
                 confirm(
-                    'Replace the badge URL? READMEs using the old one will show a broken image.',
+                    "Replace the badge URL? READMEs using the old one will show a broken image.",
                 ),
         },
     );
@@ -300,7 +305,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
         }),
         {
             preserveScroll: true,
-            only: ['service'],
+            only: ["service"],
             onBefore: () =>
                 confirm(
                     `Count ${acceptance.osv_id} against ${props.service.name} again?`,
@@ -331,6 +336,16 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 }}</Badge>
                 <StatusBadge :status="service.status" />
                 <Button variant="outline" size="sm" class="ml-auto" as-child>
+                    <a
+                        :href="BomController.url(service.id)"
+                        download
+                        title="CycloneDX 1.6 SBOM with a VEX statement for every advisory: reachability, accepted risks and fixes"
+                    >
+                        <FileDown aria-hidden="true" />
+                        SBOM + VEX
+                    </a>
+                </Button>
+                <Button variant="outline" size="sm" as-child>
                     <Link
                         :href="
                             TokenController.index({
@@ -364,14 +379,14 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 {{
                     service.evaluated_at
                         ? lastSeen(service.evaluated_at).toLowerCase()
-                        : 'not yet'
+                        : "not yet"
                 }}
                 ·
                 {{
                     plural(
                         service.dependencies.length,
-                        'dependency',
-                        'dependencies',
+                        "dependency",
+                        "dependencies",
                     )
                 }}
             </p>
@@ -404,7 +419,15 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
             </div>
         </div>
 
-        <FixPlan v-if="service.fix_plan.length" :plan="service.fix_plan" />
+        <FixPlan
+            v-if="service.fix_plan.length"
+            :plan="service.fix_plan"
+            :service-id="service.id"
+            :can-open-pull-request="
+                canOpenPullRequests && service.repository !== null
+            "
+            :pull-request-url="service.fix_plan_pull_request_url"
+        />
 
         <section
             v-if="fixCommands.length"
@@ -565,6 +588,9 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     <TriangleAlert aria-hidden="true" />
                                     Looks like {{ dependency.lookalike }}
                                 </Badge>
+                                <SupplyChainBadges
+                                    :signals="dependency.supply_chain"
+                                />
                             </span>
                             <span
                                 class="font-mono text-xs text-muted-foreground"
@@ -617,7 +643,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             />
                             {{
                                 pullRequestMeta[
-                                    dependency.pull_request_state ?? 'open'
+                                    dependency.pull_request_state ?? "open"
                                 ].label
                             }}
                             <ExternalLink class="size-3" aria-hidden="true" />
@@ -634,7 +660,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             <GitPullRequest aria-hidden="true" />
                             {{
                                 openingPullRequest === dependency.id
-                                    ? 'Opening PR…'
+                                    ? "Opening PR…"
                                     : `Open PR to ${fixVersion(dependency)}`
                             }}
                         </Button>
@@ -703,6 +729,32 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         {{ epssLabel(advisory.epss) }}</Badge
                                     >
                                     <Badge
+                                        v-if="
+                                            dependency.ecosystem !== 'npm' &&
+                                            advisory.reachable === false
+                                        "
+                                        variant="outline"
+                                        class="gap-1 border-dashed font-normal"
+                                        title="The symbol scan of the running binary found none of the vulnerable code: the linker left it out, so it can't run. Fixable advisories like this warn instead of turning the service red."
+                                    >
+                                        <CodeXml aria-hidden="true" />
+                                        Vulnerable code not in the binary
+                                    </Badge>
+                                    <Badge
+                                        v-else-if="
+                                            dependency.ecosystem !== 'npm' &&
+                                            advisory.reachable === true &&
+                                            advisory.affected_symbols.length
+                                        "
+                                        variant="outline"
+                                        class="gap-1 font-normal"
+                                        :class="statusMeta.red.text"
+                                        title="The symbol scan found a vulnerable function linked into the running binary."
+                                    >
+                                        <CodeXml aria-hidden="true" />
+                                        Vulnerable function linked
+                                    </Badge>
+                                    <Badge
                                         v-if="advisory.accepted"
                                         variant="outline"
                                         class="gap-1"
@@ -742,7 +794,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     v-if="advisory.aliases.length"
                                     class="mt-1 font-mono text-xs text-muted-foreground"
                                 >
-                                    {{ advisory.aliases.join(', ') }}
+                                    {{ advisory.aliases.join(", ") }}
                                 </p>
                                 <p
                                     v-if="advisory.summary"
@@ -770,12 +822,41 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     No fixed version released yet
                                 </p>
                                 <p
-                                    v-if="advisory.affected_packages.length"
+                                    v-if="advisory.affected_symbols.length"
+                                    class="mt-1 text-muted-foreground"
+                                >
+                                    Vulnerable
+                                    {{
+                                        advisory.affected_symbols.length === 1
+                                            ? "function"
+                                            : "functions"
+                                    }}
+                                    <code class="font-mono break-all">{{
+                                        advisory.affected_symbols
+                                            .slice(0, 6)
+                                            .join(", ")
+                                    }}</code
+                                    ><template
+                                        v-if="
+                                            advisory.affected_symbols.length > 6
+                                        "
+                                    >
+                                        and
+                                        {{
+                                            advisory.affected_symbols.length - 6
+                                        }}
+                                        more</template
+                                    >
+                                </p>
+                                <p
+                                    v-else-if="
+                                        advisory.affected_packages.length
+                                    "
                                     class="mt-1 text-muted-foreground"
                                 >
                                     Only affects
                                     <code class="font-mono break-all">{{
-                                        advisory.affected_packages.join(', ')
+                                        advisory.affected_packages.join(", ")
                                     }}</code>
                                 </p>
 
@@ -938,6 +1019,14 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         <TriangleAlert aria-hidden="true" />
                                         Looks like {{ dependency.lookalike }}
                                     </Badge>
+                                    <span
+                                        v-if="dependency.supply_chain.length"
+                                        class="ml-2 inline-flex flex-wrap gap-1 align-middle"
+                                    >
+                                        <SupplyChainBadges
+                                            :signals="dependency.supply_chain"
+                                        />
+                                    </span>
                                 </TableCell>
                                 <TableCell
                                     class="hidden font-mono text-xs text-muted-foreground sm:table-cell"
@@ -976,7 +1065,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         ></a
                                     >
                                     <template v-else>{{
-                                        dependency.latest_version ?? '—'
+                                        dependency.latest_version ?? "—"
                                     }}</template>
                                 </TableCell>
                             </TableRow>
@@ -1040,11 +1129,11 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             {{ acceptance.reason }}
                         </p>
                         <p class="mt-1 text-xs text-muted-foreground">
-                            {{ acceptance.accepted_by ?? 'Someone' }} ·
+                            {{ acceptance.accepted_by ?? "Someone" }} ·
                             {{
                                 acceptance.expires_at
                                     ? `until ${acceptance.expires_at}`
-                                    : 'no expiry'
+                                    : "no expiry"
                             }}
                         </p>
                     </div>
@@ -1120,6 +1209,14 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     Link the repo to open version-bump PRs from vulnerable
                     dependencies.
                 </p>
+                <p
+                    v-if="service.watch_repository"
+                    class="flex items-center gap-1.5 text-xs"
+                >
+                    <Bot class="size-3.5" aria-hidden="true" />
+                    Watched by patchwatch-bot: rescanned on every push to the
+                    default branch, and every PR gets a dependency review.
+                </p>
                 <div class="flex flex-wrap gap-2">
                     <Input
                         id="repository"
@@ -1192,7 +1289,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     class="w-fit"
                     @click="rotateBadge"
                     >{{
-                        badgeUrl ? 'Rotate badge URL' : 'Create badge'
+                        badgeUrl ? "Rotate badge URL" : "Create badge"
                     }}</Button
                 >
             </div>

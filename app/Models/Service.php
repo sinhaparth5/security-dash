@@ -25,15 +25,17 @@ use Laravel\Sanctum\HasApiTokens;
  * @property Carbon|null $status_changed_at
  * @property Carbon|null $evaluated_at
  * @property string|null $repository
+ * @property bool $watch_repository fed by scanning the repository on every push, not by a reporter
  * @property array<string, string|null>|null $requires the service's own npm dependencies and their ranges, the roots of its graph
  * @property Carbon|null $usage_scanned_at when the reporter last sent where the code imports its packages
  * @property list<array{action: 'refresh'|'bump'|'override', package: string, from: string|null, to: string, breaking: bool, fixes: list<string>, via: list<string>}>|null $fix_plan
+ * @property string|null $fix_plan_pull_request_url
  * @property bool $auto_pull_requests
  * @property string|null $badge_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'environment', 'status', 'last_ping_at', 'allowed_ips', 'status_changed_at', 'evaluated_at', 'repository', 'requires', 'usage_scanned_at', 'fix_plan', 'auto_pull_requests', 'badge_token'])]
+#[Fillable(['name', 'environment', 'status', 'last_ping_at', 'allowed_ips', 'status_changed_at', 'evaluated_at', 'repository', 'watch_repository', 'requires', 'usage_scanned_at', 'fix_plan', 'fix_plan_pull_request_url', 'auto_pull_requests', 'badge_token'])]
 class Service extends Model implements AuthenticatableContract
 {
     /** @use HasFactory<ServiceFactory> */
@@ -54,7 +56,7 @@ class Service extends Model implements AuthenticatableContract
      * advisories, since they were evaluated against the old version. Graph edges and usage,
      * when reported, are kept up to date either way.
      *
-     * @param  array<string, array{ecosystem: string, name: string, version: string, requires?: array<string, string|null>|null, usage?: array{sites: list<array{file: string, line: int, kind: 'source'|'tooling'}>, bin: bool}|null}>  $reported  keyed by "ecosystem|name"
+     * @param  array<string, array{ecosystem: string, name: string, version: string, requires?: array<string, string|null>|null, usage?: array{sites: list<array{file: string, line: int, kind: 'source'|'tooling'}>, bin: bool}|null, linked_symbols?: list<string>|null}>  $reported  keyed by "ecosystem|name"
      * @param  list<Ecosystem>  $ecosystems
      */
     public function syncDependencies(array $reported, array $ecosystems): void
@@ -66,7 +68,7 @@ class Service extends Model implements AuthenticatableContract
             // ponytail: one query per changed row, batch with upsert if manifests reach thousands
             foreach ($reported as $key => $dependency) {
                 $current = $existing->pull($key);
-                $graph = array_intersect_key($dependency, ['requires' => true, 'usage' => true]);
+                $graph = array_intersect_key($dependency, ['requires' => true, 'usage' => true, 'linked_symbols' => true]);
 
                 if ($current === null) {
                     $this->dependencies()->create($dependency);
@@ -122,6 +124,7 @@ class Service extends Model implements AuthenticatableContract
             'requires' => 'array',
             'usage_scanned_at' => 'datetime',
             'fix_plan' => 'array',
+            'watch_repository' => 'boolean',
             'auto_pull_requests' => 'boolean',
         ];
     }

@@ -44,7 +44,20 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Configure patchwatch-bot with a fresh key pair and return the public key, to check the JWTs it signs.
+ */
+function fakeGithubApp(string $webhookSecret = 'whsec-test'): string
 {
-    // ..
+    $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    openssl_pkey_export($key, $pem);
+
+    config([
+        'services.github.app_id' => '12345',
+        'services.github.app_slug' => 'patchwatch-bot',
+        'services.github.app_private_key' => $pem,
+        'services.github.webhook_secret' => $webhookSecret,
+    ]);
+
+    return openssl_pkey_get_details($key)['key'];
 }

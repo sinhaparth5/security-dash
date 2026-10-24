@@ -213,3 +213,39 @@ test('heartbeat with a malformed usage scan returns 422', function () {
     ])->assertUnprocessable()
         ->assertJsonValidationErrors(['usage.0.sites.0.line', 'usage.0.sites.0.kind']);
 });
+
+test('a go symbol scan is split between the modules and the standard library it belongs to', function () {
+    $service = Service::factory()->create();
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), [
+        'dependencies' => [
+            ['ecosystem' => 'runtime', 'name' => 'go', 'version' => 'go1.24.1'],
+            ['ecosystem' => 'go', 'name' => 'golang.org/x/net', 'version' => 'v0.17.0'],
+            ['ecosystem' => 'go', 'name' => 'golang.org/x/net/v2', 'version' => 'v2.0.0'],
+            ['ecosystem' => 'go', 'name' => 'github.com/gin-gonic/gin', 'version' => 'v1.10.0'],
+        ],
+        'symbols' => [
+            'net/http' => ['Server.Serve', 'ListenAndServe'],
+            'golang.org/x/net/http2' => ['Framer.ReadFrame'],
+            'golang.org/x/net/v2/idna' => ['ToASCII'],
+            'example.com/me/internal/api' => ['Handler'],
+        ],
+    ])->assertNoContent();
+
+    $linked = $service->dependencies()->pluck('linked_symbols', 'name');
+
+    expect($linked['go'])->toBe(['net/http.Server.Serve', 'net/http.ListenAndServe'])
+        ->and($linked['golang.org/x/net'])->toBe(['golang.org/x/net/http2.Framer.ReadFrame'])
+        ->and($linked['golang.org/x/net/v2'])->toBe(['golang.org/x/net/v2/idna.ToASCII'])
+        ->and($linked['github.com/gin-gonic/gin'])->toBe([]);
+});
+
+test('a heartbeat without a symbol scan leaves go modules unscanned', function () {
+    $service = Service::factory()->create();
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), ['dependencies' => [['ecosystem' => 'go', 'name' => 'golang.org/x/net', 'version' => 'v0.17.0']]])->assertNoContent();
+
+    expect($service->dependencies()->value('linked_symbols'))->toBeNull();
+});

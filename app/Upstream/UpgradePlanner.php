@@ -14,7 +14,7 @@ class UpgradePlanner
      */
     private const MAX_CANDIDATES = 150;
 
-    public function __construct(private Npm $npm) {}
+    public function __construct(private Npm $npm, private SupplyChain $supplyChain) {}
 
     /**
      * The fewest changes that clear the service's fixable npm advisories, cheapest first:
@@ -128,7 +128,8 @@ class UpgradePlanner
     }
 
     /**
-     * The lowest stable, non-deprecated release after the given version that passes the check.
+     * The lowest stable, non-deprecated release after the given version that passes the check. Releases
+     * under SupplyChain::FRESH_HOURS old are passed over: a fix is not worth a release nobody has vetted yet.
      *
      * @param  callable(string): bool  $accepts
      */
@@ -141,6 +142,6 @@ class UpgradePlanner
             ->keys()
             ->sort(fn (string $a, string $b) => Semver::compare($a, $b))
             ->take(self::MAX_CANDIDATES)
-            ->first(fn (string $version) => $accepts($version));
+            ->first(fn (string $version) => ! $this->supplyChain->isFresh($name, $version) && $accepts($version));
     }
 }

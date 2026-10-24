@@ -19,6 +19,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $summary
  * @property string|null $fixed_version
  * @property list<string>|null $affected_packages
+ * @property list<string>|null $affected_symbols the vulnerable functions, as "import/path.Func" (Go)
+ * @property bool|null $reachable whether the code reaches it: for Go, whether a vulnerable function is linked; null when unknown
  * @property bool $known_exploited
  * @property float|null $epss
  * @property array{urgency: float, urgency_confidence: float, action: string, action_confidence: float}|null $triage
@@ -26,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'affected_packages', 'known_exploited', 'epss', 'triage', 'first_seen_at'])]
+#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'affected_packages', 'affected_symbols', 'reachable', 'known_exploited', 'epss', 'triage', 'first_seen_at'])]
 class Advisory extends Model
 {
     /** @use HasFactory<AdvisoryFactory> */
@@ -84,6 +86,8 @@ class Advisory extends Model
             'epss' => 'float',
             'triage' => 'array',
             'affected_packages' => 'array',
+            'affected_symbols' => 'array',
+            'reachable' => 'boolean',
             'first_seen_at' => 'datetime',
         ];
     }

@@ -16,6 +16,7 @@ use App\Upstream\GitHub;
 use App\Upstream\Jev;
 use App\Upstream\Osv;
 use App\Upstream\Releases;
+use App\Upstream\SupplyChain;
 use App\Upstream\UpgradePlanner;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -45,11 +46,12 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * Red = known advisory with a fix to upgrade to (or malware, or a runtime past end of life),
      * Yellow = newer release available or an advisory with no fix released yet, Green = neither.
      * Advisories with an active risk acceptance don't count towards Red, and neither do fixable ones in npm
-     * packages the usage scan shows the code never reaches (malware still does: install scripts run regardless).
+     * packages the usage scan shows the code never reaches, or Go advisories whose vulnerable functions the symbol scan
+     * shows aren't linked into the binary (malware still does: install scripts run regardless).
      * Images keep the grade their last CI scan gave them unless every finding has been accepted.
      * Every user is mailed (and the alert webhook posted) when the service first turns Red, or when a malicious package first shows up.
      */
-    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev, GitHub $github, UpgradePlanner $planner): void
+    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev, GitHub $github, UpgradePlanner $planner, SupplyChain $supplyChain): void
     {
         $previousStatus = $this->service->fresh()->status;
         $wasMalicious = $this->hasMaliciousAdvisory();
@@ -73,11 +75,16 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 }
             }
 
+            $reachable = $graph->reachable($dependency);
+            $advisories = array_map(fn (array $advisory) => $advisory + ['reachable' => $dependency->ecosystem === Ecosystem::Npm
+                ? $reachable
+                : $dependency->linksVulnerableCode($advisory['affected_packages'] ?? [], $advisory['affected_symbols'] ?? [])], $advisories);
+
             $latestVersion = $releases->latest($dependency);
             $isTracked = array_key_exists($dependency->id, $osvAdvisories) || $dependency->ecosystem === Ecosystem::Runtime;
 
             $status = match (true) {
-                $isRed(array_filter($advisories, $graph->reachable($dependency) === false ? $isMalicious : $isPatchable)) => ServiceStatus::Red,
+                $isRed(array_filter($advisories, fn (array $advisory) => $isMalicious($advisory) || ($isPatchable($advisory) && $advisory['reachable'] !== false))) => ServiceStatus::Red,
                 $isRed($advisories) => ServiceStatus::Yellow,
                 $latestVersion !== null && version_compare(Releases::normalize($dependency->version), $latestVersion, '<') => ServiceStatus::Yellow,
                 $isTracked => ServiceStatus::Green,
@@ -121,6 +128,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         });
 
         $this->enrich($exploitability);
+        $this->inspect($supplyChain);
         $this->plan($planner, $accepted->all());
         $this->triage($jev, $accepted->all());
         $this->pullRequests($github);
@@ -207,6 +215,25 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
         if ($plan !== null) {
             $this->service->update(['fix_plan' => $plan]);
+        }
+    }
+
+    /**
+     * Note the npm releases that look like supply-chain trouble. They inform, they don't grade.
+     */
+    private function inspect(SupplyChain $supplyChain): void
+    {
+        $dependencies = $this->service->dependencies()->where('ecosystem', Ecosystem::Npm)->get();
+
+        // ponytail: best effort like enrich(), an outage keeps the previous signals until the next evaluation.
+        $signals = rescue(fn () => $supplyChain->signals($dependencies), null, report: true);
+
+        if ($signals === null) {
+            return;
+        }
+
+        foreach ($dependencies as $dependency) {
+            $dependency->update(['supply_chain' => $signals[$dependency->id] ?? null]);
         }
     }
 

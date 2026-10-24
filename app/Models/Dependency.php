@@ -20,6 +20,8 @@ use Illuminate\Support\Carbon;
  * @property string $version
  * @property array<string, string|null>|null $requires the packages this one depends on and the range it asks for (npm)
  * @property array{sites: list<array{file: string, line: int, kind: 'source'|'tooling'}>, bin: bool}|null $usage where the service's code imports it, from the usage scan
+ * @property list<string>|null $linked_symbols the module's functions linked into the Go binary, as "import/path.Func" (Go and the Go runtime); null without a symbol scan
+ * @property list<array{signal: string, detail: string}>|null $supply_chain release signals worth a second look (npm)
  * @property string|null $latest_version
  * @property ServiceStatus $status
  * @property Carbon|null $eol_at
@@ -28,7 +30,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['ecosystem', 'name', 'version', 'requires', 'usage', 'latest_version', 'status', 'eol_at', 'pull_request_url', 'pull_request_state'])]
+#[Fillable(['ecosystem', 'name', 'version', 'requires', 'usage', 'linked_symbols', 'supply_chain', 'latest_version', 'status', 'eol_at', 'pull_request_url', 'pull_request_state'])]
 class Dependency extends Model
 {
     /** @use HasFactory<DependencyFactory> */
@@ -67,6 +69,36 @@ class Dependency extends Model
     }
 
     /**
+     * Does the binary contain the code an advisory is about? Go advisories name the vulnerable packages
+     * and, usually, functions; this checks them against the functions the linker kept. True or false
+     * only with a symbol scan and an advisory that names packages, null otherwise.
+     *
+     * @param  list<string>  $packages  import paths, e.g. golang.org/x/net/html
+     * @param  list<string>  $symbols  "import/path.Func" or "import/path.Type.Method"; a package without any is affected as a whole
+     */
+    public function linksVulnerableCode(array $packages, array $symbols): ?bool
+    {
+        if ($this->linked_symbols === null || $packages === []) {
+            return null;
+        }
+
+        $linked = array_flip($this->linked_symbols);
+
+        foreach ($packages as $package) {
+            $named = array_filter($symbols, fn (string $symbol) => str_starts_with($symbol, $package.'.'));
+            $hit = $named === []
+                ? collect($this->linked_symbols)->contains(fn (string $symbol) => str_starts_with($symbol, $package.'.'))
+                : collect($named)->contains(fn (string $symbol) => isset($linked[$symbol]));
+
+            if ($hit) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @return BelongsTo<Service, $this>
      */
     public function service(): BelongsTo
@@ -93,6 +125,8 @@ class Dependency extends Model
             'ecosystem' => Ecosystem::class,
             'requires' => 'array',
             'usage' => 'array',
+            'linked_symbols' => 'array',
+            'supply_chain' => 'array',
             'status' => ServiceStatus::class,
             'eol_at' => 'date',
         ];

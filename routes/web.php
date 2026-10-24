@@ -3,10 +3,13 @@
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\GithubLoginController;
 use App\Http\Controllers\BadgeController;
+use App\Http\Controllers\BomController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GitHub\WebhookController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PackageController;
 use App\Http\Controllers\PullRequestController;
+use App\Http\Controllers\RepositoryController;
 use App\Http\Controllers\RiskAcceptanceController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\TokenController;
@@ -16,6 +19,9 @@ Route::redirect('/', '/dashboard')->name('home');
 
 // Public on purpose: README badges are fetched by GitHub's image proxy, so the unguessable token is the key.
 Route::get('badge/{token}.svg', BadgeController::class)->middleware('throttle:120,1')->name('badge.show');
+
+// Public on purpose: patchwatch-bot's deliveries are authenticated by their signature.
+Route::post('github/webhook', WebhookController::class)->middleware('throttle:120,1')->name('github.webhook');
 
 Route::middleware('guest')->group(function () {
     Route::inertia('login', 'auth/Login')->name('login');
@@ -40,6 +46,10 @@ Route::middleware('auth')->group(function () {
     Route::put('services/{service}/repository', [ServiceController::class, 'updateRepository'])->name('services.repository.update');
     Route::post('services/{service}/dependencies/{dependency}/pull-request', [PullRequestController::class, 'store'])->middleware('throttle:10,1')->scopeBindings()->name('services.dependencies.pull-request.store');
     Route::post('services/{service}/badge', [ServiceController::class, 'rotateBadge'])->middleware('throttle:10,1')->name('services.badge.rotate');
+    Route::post('services/{service}/fix-plan/pull-request', [PullRequestController::class, 'plan'])->middleware('throttle:10,1')->name('services.fix-plan.pull-request.store');
+    Route::get('services/{service}/sbom', BomController::class)->name('services.sbom');
+    Route::get('repositories', [RepositoryController::class, 'index'])->name('repositories.index');
+    Route::post('repositories', [RepositoryController::class, 'store'])->middleware('throttle:20,1')->name('repositories.store');
     Route::get('packages', [PackageController::class, 'index'])->name('packages.index');
     Route::get('news', [NewsController::class, 'index'])->name('news.index');
     Route::get('audit', AuditController::class)->name('audit.index');

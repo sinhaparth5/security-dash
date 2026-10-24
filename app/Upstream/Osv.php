@@ -15,7 +15,7 @@ class Osv
      * Throws on upstream failure so a caller never mistakes an outage for "no advisories".
      *
      * @param  iterable<Dependency>  $dependencies
-     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>}>>
+     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}>>
      */
     public function advisories(iterable $dependencies): array
     {
@@ -77,7 +77,7 @@ class Osv
     /**
      * The fields of an OSV vulnerability record this app reads.
      *
-     * @return array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string}>}}>}
+     * @return array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string, symbols?: list<string>}>}}>}
      */
     private function vulnerability(string $id, string $modified): array
     {
@@ -88,8 +88,8 @@ class Osv
     }
 
     /**
-     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string}>}}>}  $vulnerability
-     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>}
+     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string, symbols?: list<string>}>}}>}  $vulnerability
+     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}
      */
     private function advisory(array $vulnerability, Dependency $dependency): array
     {
@@ -108,6 +108,8 @@ class Osv
             ->sort(fn (string $a, string $b) => version_compare($a, $b))
             ->first();
 
+        $imports = array_merge(...$affected->map(fn (array $affected) => $affected['ecosystem_specific']['imports'] ?? [])->values()->all());
+
         return [
             'osv_id' => $vulnerability['id'],
             'aliases' => $vulnerability['aliases'] ?? [],
@@ -115,10 +117,12 @@ class Osv
             'summary' => $vulnerability['summary'] ?? null,
             'fixed_version' => $fixedVersion,
             // Go advisories name the vulnerable packages inside the module, e.g. only x/crypto/openpgp.
-            'affected_packages' => array_values(array_unique(array_column(
-                array_merge(...$affected->map(fn (array $affected) => $affected['ecosystem_specific']['imports'] ?? [])->values()->all()),
-                'path',
-            ))),
+            'affected_packages' => array_values(array_unique(array_column($imports, 'path'))),
+            // ...and usually the functions in them, which a symbol scan checks against the binary.
+            'affected_symbols' => array_values(array_unique(array_merge(...array_map(
+                fn (array $import) => array_map(fn (string $symbol) => $import['path'].'.'.$symbol, $import['symbols'] ?? []),
+                $imports,
+            )))),
         ];
     }
 }

@@ -144,3 +144,96 @@ test('linking a repository validates owner/name and is audited', function () {
     expect($service->fresh()->repository)->toBe('acme/billing-api');
     $this->assertDatabaseHas('audit_events', ['action' => 'service.repository_updated']);
 });
+
+/**
+ * A service whose upgrade plan bumps astro, overrides nanoid under it and refreshes postcss.
+ */
+function plannedRepository(): Service
+{
+    return Service::factory()->create(['repository' => 'acme/billing', 'fix_plan' => [
+        ['action' => 'refresh', 'package' => 'postcss', 'from' => '8.4.31', 'to' => '8.4.49', 'breaking' => false, 'fixes' => ['GHSA-p'], 'via' => ['vite', 'postcss']],
+        ['action' => 'bump', 'package' => 'astro', 'from' => '4.16.0', 'to' => '5.0.0', 'breaking' => true, 'fixes' => ['GHSA-a'], 'via' => ['astro']],
+        ['action' => 'override', 'package' => 'nanoid', 'from' => '3.3.6', 'to' => '3.3.8', 'breaking' => false, 'fixes' => ['GHSA-n'], 'via' => ['astro', 'vite', 'nanoid']],
+    ]]);
+}
+
+/**
+ * @param  array<string, mixed>  $extra
+ */
+function fakeRepository(array $extra = []): void
+{
+    Http::fake([
+        ...$extra,
+        'api.github.com/repos/acme/billing' => Http::response(['default_branch' => 'main']),
+        'api.github.com/repos/acme/billing/git/ref/heads/main' => Http::response(['object' => ['sha' => 'abc']]),
+        'api.github.com/repos/acme/billing/git/trees/abc*' => Http::response(['tree' => [
+            ['path' => 'package.json', 'type' => 'blob'],
+            ['path' => 'package-lock.json', 'type' => 'blob'],
+            ['path' => 'docs/package.json', 'type' => 'blob'],
+        ]]),
+        'api.github.com/repos/acme/billing/contents/package.json*' => Http::sequence()
+            ->push(['sha' => 'file1', 'content' => base64_encode("{\n  \"dependencies\": {\n    \"astro\": \"^4.16.0\"\n  }\n}\n")])
+            ->push(['content' => []]),
+        'api.github.com/repos/acme/billing/git/refs' => Http::response([], 201),
+        'api.github.com/repos/acme/billing/pulls' => Http::response(['html_url' => 'https://github.com/acme/billing/pull/12'], 201),
+    ]);
+}
+
+test('one pr applies the whole upgrade plan to the root package.json', function () {
+    $service = plannedRepository();
+    fakeRepository();
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('services.fix-plan.pull-request.store', $service))
+        ->assertInertiaFlash('toast.type', 'success');
+
+    expect($service->fresh()->fix_plan_pull_request_url)->toBe('https://github.com/acme/billing/pull/12');
+    Http::assertSent(fn ($request) => $request->method() === 'PUT'
+        && str_ends_with($request->url(), 'contents/package.json')
+        && json_decode(base64_decode($request['content']), true) === ['dependencies' => ['astro' => '^5.0.0'], 'overrides' => ['nanoid' => '^3.3.8']]);
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/pulls')
+        && $request['title'] === 'Apply the Patchwatch upgrade plan (2 changes)'
+        && str_contains($request['body'], 'Bump `astro` from 4.16.0 to 5.0.0 **(major: expect breaking changes)**, fixing GHSA-a')
+        && str_contains($request['body'], '`npm update vite postcss`')
+        && str_contains($request['body'], 'Run `npm install` on this branch'));
+    $this->assertDatabaseHas('audit_events', ['action' => 'pull_request.opened', 'service_id' => $service->id]);
+});
+
+test('a plan of lockfile refreshes only has nothing to put in a pr', function () {
+    $service = Service::factory()->create(['repository' => 'acme/billing', 'fix_plan' => [
+        ['action' => 'refresh', 'package' => 'postcss', 'from' => '8.4.31', 'to' => '8.4.49', 'breaking' => false, 'fixes' => ['GHSA-p'], 'via' => ['postcss']],
+    ]]);
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('services.fix-plan.pull-request.store', $service))
+        ->assertInertiaFlash('toast.type', 'error');
+
+    Http::assertNothingSent();
+});
+
+test('where patchwatch-bot is installed, prs are opened as the bot with an installation token', function () {
+    $publicKey = fakeGithubApp();
+    config(['services.github.pr_token' => null]);
+    $service = plannedRepository();
+    fakeRepository([
+        'api.github.com/repos/acme/billing/installation' => Http::response(['id' => 77]),
+        'api.github.com/app/installations/77/access_tokens' => Http::response(['token' => 'ghs_bot'], 201),
+    ]);
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('services.fix-plan.pull-request.store', $service))
+        ->assertInertiaFlash('toast.type', 'success');
+
+    Http::assertSent(function ($request) use ($publicKey) {
+        if (! str_ends_with($request->url(), '/installation')) {
+            return false;
+        }
+
+        [$header, $claims, $signature] = explode('.', substr($request->header('Authorization')[0], 7));
+        $decode = fn (string $part) => base64_decode(strtr($part, '-_', '+/'));
+
+        return openssl_verify("{$header}.{$claims}", $decode($signature), $publicKey, OPENSSL_ALGO_SHA256) === 1
+            && json_decode($decode($claims), true)['iss'] === '12345';
+    });
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/pulls') && $request->header('Authorization') === ['Bearer ghs_bot']);
+});

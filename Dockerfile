@@ -43,6 +43,9 @@ FROM base AS app
 ARG UID=10001
 ARG GID=10001
 
+# patchwatch-bot reads repositories' lockfiles with the Node reporter in templates/node, so Node ships too (just the binary).
+COPY --from=node:24-trixie-slim /usr/local/bin/node /usr/local/bin/node
+
 # Code is owned by root and read-only to the app; only runtime caches are writable by it.
 # The binary ships with cap_net_bind_service for ports < 1024; we use 8080, and the file
 # capability would stop it from starting under cap_drop: ALL + no-new-privileges.

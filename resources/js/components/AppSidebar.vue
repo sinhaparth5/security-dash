@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link } from "@inertiajs/vue3";
 import {
+    FolderGit2,
     KeyRound,
     Newspaper,
     Package,
     ScrollText,
     Settings,
     ShieldCheck,
-} from '@lucide/vue';
-import AppLogo from '@/components/AppLogo.vue';
-import NavMain from '@/components/NavMain.vue';
-import NavUser from '@/components/NavUser.vue';
+} from "@lucide/vue";
+import AppLogo from "@/components/AppLogo.vue";
+import NavMain from "@/components/NavMain.vue";
+import NavUser from "@/components/NavUser.vue";
 import {
     Sidebar,
     SidebarContent,
@@ -19,43 +20,49 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
-} from '@/components/ui/sidebar';
-import { dashboard } from '@/routes';
-import { index as auditIndex } from '@/routes/audit';
-import { edit as integrationsEdit } from '@/routes/integrations';
-import { index as newsIndex } from '@/routes/news';
-import { index as packagesIndex } from '@/routes/packages';
-import { index as tokensIndex } from '@/routes/tokens';
-import type { NavItem } from '@/types';
+} from "@/components/ui/sidebar";
+import { dashboard } from "@/routes";
+import { index as auditIndex } from "@/routes/audit";
+import { edit as integrationsEdit } from "@/routes/integrations";
+import { index as newsIndex } from "@/routes/news";
+import { index as packagesIndex } from "@/routes/packages";
+import { index as repositoriesIndex } from "@/routes/repositories";
+import { index as tokensIndex } from "@/routes/tokens";
+import type { NavItem } from "@/types";
 
 const mainNavItems: NavItem[] = [
     {
-        title: 'Service health',
+        title: "Service health",
         href: dashboard(),
         icon: ShieldCheck,
     },
     {
-        title: 'Packages',
+        title: "Packages",
         href: packagesIndex(),
         icon: Package,
     },
     {
-        title: 'News',
+        title: "Repositories",
+        href: repositoriesIndex(),
+        icon: FolderGit2,
+    },
+    {
+        title: "News",
         href: newsIndex(),
         icon: Newspaper,
     },
     {
-        title: 'Tokens',
+        title: "Tokens",
         href: tokensIndex(),
         icon: KeyRound,
     },
     {
-        title: 'Audit log',
+        title: "Audit log",
         href: auditIndex(),
         icon: ScrollText,
     },
     {
-        title: 'Settings',
+        title: "Settings",
         href: integrationsEdit(),
         icon: Settings,
     },

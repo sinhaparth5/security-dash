@@ -35,6 +35,11 @@ return [
         // Comma-separated GitHub usernames allowed to sign in to the dashboard.
         // Fine-grained token with Contents and Pull requests write access, used to open version-bump PRs.
         'pr_token' => env('GITHUB_PR_TOKEN'),
+        // The patchwatch-bot GitHub App, normally created from Settings → Integrations, which saves these there.
+        'app_id' => env('GITHUB_APP_ID'),
+        'app_slug' => env('GITHUB_APP_SLUG'),
+        'app_private_key' => env('GITHUB_APP_PRIVATE_KEY'),
+        'webhook_secret' => env('GITHUB_WEBHOOK_SECRET'),
         'allowed_logins' => array_values(array_filter(array_map('trim', explode(',', (string) env('GITHUB_ALLOWED_LOGINS', 'sinhaparth5'))))),
     ],
 

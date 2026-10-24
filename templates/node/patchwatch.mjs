@@ -11,20 +11,21 @@
 //   startPatchwatch(); // on boot, then every 6 hours
 //
 // Or run it once, e.g. from cron or a deploy step: node patchwatch.mjs
+// Add --dry-run to print the report instead of sending it.
 
-import { existsSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, dirname, extname, join, relative, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { existsSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
 const LOCKFILES = {
-    'package-lock.json': readNpm,
-    'npm-shrinkwrap.json': readNpm,
-    'pnpm-lock.yaml': readPnpm,
-    'yarn.lock': readYarn,
-    'bun.lock': readBun,
+    "package-lock.json": readNpm,
+    "npm-shrinkwrap.json": readNpm,
+    "pnpm-lock.yaml": readPnpm,
+    "yarn.lock": readYarn,
+    "bun.lock": readBun,
 };
 
 /**
@@ -39,9 +40,9 @@ export async function collectDependencies(
 
     if (!read) {
         throw new Error(
-            basename(lockfile) === 'bun.lockb'
-                ? 'bun.lockb is binary. Run `bun install --save-text-lockfile` (or upgrade to Bun 1.2+) to get bun.lock.'
-                : `Unsupported lockfile ${lockfile}. Use one of: ${Object.keys(LOCKFILES).join(', ')}.`,
+            basename(lockfile) === "bun.lockb"
+                ? "bun.lockb is binary. Run `bun install --save-text-lockfile` (or upgrade to Bun 1.2+) to get bun.lock."
+                : `Unsupported lockfile ${lockfile}. Use one of: ${Object.keys(LOCKFILES).join(", ")}.`,
         );
     }
 
@@ -54,9 +55,9 @@ export async function collectDependencies(
     }
 
     return [
-        { ecosystem: 'runtime', name: 'node', version: process.version },
+        { ecosystem: "runtime", name: "node", version: process.version },
         ...[...versions].map(([name, { version, requires }]) => ({
-            ecosystem: 'npm',
+            ecosystem: "npm",
             name,
             version,
             requires,
@@ -67,7 +68,7 @@ export async function collectDependencies(
 /** Your package.json's production dependencies and their ranges: the roots of the graph. */
 async function readRoots(lockfile) {
     const manifest = JSON.parse(
-        await readFile(join(dirname(lockfile), 'package.json'), 'utf8'),
+        await readFile(join(dirname(lockfile), "package.json"), "utf8"),
     );
 
     return { manifest, requires: requiresOf(manifest) };
@@ -78,7 +79,7 @@ function findLockfile() {
 
     if (!found) {
         throw new Error(
-            `No lockfile in ${process.cwd()}. Set PATCHWATCH_LOCKFILE or copy one of ${Object.keys(LOCKFILES).join(', ')} into the image.`,
+            `No lockfile in ${process.cwd()}. Set PATCHWATCH_LOCKFILE or copy one of ${Object.keys(LOCKFILES).join(", ")} into the image.`,
         );
     }
 
@@ -87,7 +88,7 @@ function findLockfile() {
 
 /** package-lock.json v2/v3: every install path is listed and dev packages are flagged. */
 async function readNpm(lockfile) {
-    const lock = JSON.parse(await readFile(lockfile, 'utf8'));
+    const lock = JSON.parse(await readFile(lockfile, "utf8"));
 
     if (!lock.packages) {
         throw new Error(
@@ -100,13 +101,13 @@ async function readNpm(lockfile) {
             // "" is your own project, links point at workspace folders, dev deps aren't deployed.
             .filter(
                 ([path, entry]) =>
-                    path !== '' && !entry.link && !entry.dev && entry.version,
+                    path !== "" && !entry.link && !entry.dev && entry.version,
             )
             .map(([path, entry]) => ({
-                depth: path.split('node_modules/').length,
+                depth: path.split("node_modules/").length,
                 name:
                     entry.name ??
-                    path.slice(path.lastIndexOf('node_modules/') + 13),
+                    path.slice(path.lastIndexOf("node_modules/") + 13),
                 version: entry.version,
                 requires: requiresOf(entry),
             }))
@@ -120,21 +121,21 @@ async function readNpm(lockfile) {
  * from every importer's production dependencies through `snapshots`.
  */
 async function readPnpm(lockfile) {
-    const lock = parseYamlish(await readFile(lockfile, 'utf8'));
+    const lock = parseYamlish(await readFile(lockfile, "utf8"));
     const major = parseInt(lock.lockfileVersion, 10);
 
     if (major < 9) {
         // v6 keys look like /name@1.0.0(peer@2.0.0), v5 like /name/1.0.0_peer@2.0.0.
         return Object.entries(lock.packages ?? {})
-            .filter(([, entry]) => entry.dev !== 'true')
+            .filter(([, entry]) => entry.dev !== "true")
             .map(([key, entry]) => {
-                const id = key.replace(/^\//, '').replace(/\(.*$/, '');
+                const id = key.replace(/^\//, "").replace(/\(.*$/, "");
                 const at =
-                    major >= 6 ? id.lastIndexOf('@') : id.lastIndexOf('/');
+                    major >= 6 ? id.lastIndexOf("@") : id.lastIndexOf("/");
 
                 return [
                     id.slice(0, at),
-                    id.slice(at + 1).replace(/_.*$/, ''),
+                    id.slice(at + 1).replace(/_.*$/, ""),
                     pnpmRequires(entry),
                 ];
             });
@@ -151,12 +152,12 @@ async function readPnpm(lockfile) {
             return undefined; // link:, file: and workspace packages
         }
 
-        const at = id.indexOf('@', 1);
+        const at = id.indexOf("@", 1);
 
         return {
             id,
             name: id.slice(0, at),
-            version: id.slice(at + 1).replace(/\(.*$/, ''),
+            version: id.slice(at + 1).replace(/\(.*$/, ""),
             requires: pnpmRequires(snapshot),
             deps: prodEntries(snapshot).map(([name, version]) =>
                 pnpmId(name, version),
@@ -170,7 +171,7 @@ function pnpmRequires(entry) {
     return Object.fromEntries(
         prodEntries(entry).map(([name, version]) => [
             name,
-            version.replace(/\(.*$/, '').replace(/_.*$/, ''),
+            version.replace(/\(.*$/, "").replace(/_.*$/, ""),
         ]),
     );
 }
@@ -185,17 +186,17 @@ function pnpmId(name, version) {
  * from package.json's dependencies through each entry's descriptors.
  */
 async function readYarn(lockfile) {
-    const lock = parseYamlish(await readFile(lockfile, 'utf8'));
+    const lock = parseYamlish(await readFile(lockfile, "utf8"));
     // ponytail: roots are the package.json next to the lockfile only; workspace packages' own deps aren't walked
     const manifest = JSON.parse(
-        await readFile(join(dirname(lockfile), 'package.json'), 'utf8'),
+        await readFile(join(dirname(lockfile), "package.json"), "utf8"),
     );
     const entries = new Map();
 
     for (const [header, entry] of Object.entries(lock)) {
         // A header lists every range that resolved to this entry: "a@^1.0.0", "a@^1.2.0"
         for (const descriptor of header.split(/["']?,\s*["']?/)) {
-            entries.set(descriptor.replace(/^["']|["']$/g, ''), entry);
+            entries.set(descriptor.replace(/^["']|["']$/g, ""), entry);
         }
     }
 
@@ -204,14 +205,14 @@ async function readYarn(lockfile) {
     );
 
     return walk(roots, (descriptor) => {
-        const at = descriptor.indexOf('@', 1);
+        const at = descriptor.indexOf("@", 1);
         const name = descriptor.slice(0, at);
         // Berry prefixes registry ranges with npm:, package.json doesn't.
         const entry =
             entries.get(descriptor) ??
             entries.get(`${name}@npm:${descriptor.slice(at + 1)}`);
 
-        if (!entry?.version || entry.version.endsWith('-use.local')) {
+        if (!entry?.version || entry.version.endsWith("-use.local")) {
             return undefined; // workspace or unresolved
         }
 
@@ -231,10 +232,10 @@ async function readYarn(lockfile) {
  */
 async function readBun(lockfile) {
     const lock = JSON.parse(
-        (await readFile(lockfile, 'utf8')).replace(/,(\s*[}\]])/g, '$1'),
+        (await readFile(lockfile, "utf8")).replace(/,(\s*[}\]])/g, "$1"),
     );
     const roots = Object.values(lock.workspaces ?? {}).flatMap((workspace) =>
-        prodEntries(workspace).map(([name]) => ({ name, parent: '' })),
+        prodEntries(workspace).map(([name]) => ({ name, parent: "" })),
     );
 
     return walk(roots, ({ name, parent }) => {
@@ -243,15 +244,15 @@ async function readBun(lockfile) {
         let scope = parent;
 
         while (scope && !lock.packages?.[`${scope}/${name}`]) {
-            scope = scope.slice(0, Math.max(0, scope.lastIndexOf('/')));
+            scope = scope.slice(0, Math.max(0, scope.lastIndexOf("/")));
         }
 
         const key = scope ? `${scope}/${name}` : name;
 
         const [spec, , meta] = lock.packages?.[key] ?? [];
-        const version = spec?.slice(spec.indexOf('@', 1) + 1);
+        const version = spec?.slice(spec.indexOf("@", 1) + 1);
 
-        if (!version || version.startsWith('workspace:')) {
+        if (!version || version.startsWith("workspace:")) {
             return undefined;
         }
 
@@ -281,7 +282,7 @@ function requiresOf(manifest) {
     return Object.fromEntries(
         prodEntries(manifest).map(([name, range]) => [
             name,
-            String(range).replace(/^npm:(?=[\d^~<>=*x])/, ''),
+            String(range).replace(/^npm:(?=[\d^~<>=*x])/, ""),
         ]),
     );
 }
@@ -322,7 +323,7 @@ function parseYamlish(text) {
     for (const raw of text.split(/\r?\n/)) {
         const line = raw.trim();
 
-        if (line === '' || line.startsWith('#') || line.startsWith('- ')) {
+        if (line === "" || line.startsWith("#") || line.startsWith("- ")) {
             continue;
         }
 
@@ -334,7 +335,7 @@ function parseYamlish(text) {
 
         const parent = stack.at(-1).map;
 
-        if (line.endsWith(':')) {
+        if (line.endsWith(":")) {
             const map = {};
             parent[unquote(line.slice(0, -1))] = map;
             stack.push({ indent, map });
@@ -347,7 +348,7 @@ function parseYamlish(text) {
         if (line[0] === '"' || line[0] === "'") {
             const close = line.indexOf(line[0], 1);
             key = line.slice(1, close);
-            value = line.slice(close + 1).replace(/^:/, '');
+            value = line.slice(close + 1).replace(/^:/, "");
         } else {
             // YAML is `key: value`, classic yarn.lock is `key value`.
             const match =
@@ -367,36 +368,36 @@ function parseYamlish(text) {
 }
 
 const SOURCE_EXTENSIONS = new Set([
-    '.js',
-    '.mjs',
-    '.cjs',
-    '.jsx',
-    '.ts',
-    '.mts',
-    '.cts',
-    '.tsx',
-    '.vue',
-    '.svelte',
-    '.astro',
-    '.mdx',
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".jsx",
+    ".ts",
+    ".mts",
+    ".cts",
+    ".tsx",
+    ".vue",
+    ".svelte",
+    ".astro",
+    ".mdx",
 ]);
 const SKIPPED_DIRECTORIES = new Set([
-    'node_modules',
-    '.git',
-    'dist',
-    'build',
-    'out',
-    'coverage',
-    'vendor',
-    'public',
-    '.next',
-    '.nuxt',
-    '.output',
-    '.astro',
-    '.svelte-kit',
-    '.vercel',
-    '.turbo',
-    '.cache',
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    "vendor",
+    "public",
+    ".next",
+    ".nuxt",
+    ".output",
+    ".astro",
+    ".svelte-kit",
+    ".vercel",
+    ".turbo",
+    ".cache",
 ]);
 const MAX_FILES = 5000;
 const MAX_SITES = 20;
@@ -437,8 +438,8 @@ export async function collectUsage(
     const files = await sourceFiles(source);
 
     for (const file of files) {
-        const path = relative(source, file).split(sep).join('/');
-        const text = stripComments(await readFile(file, 'utf8'));
+        const path = relative(source, file).split(sep).join("/");
+        const text = stripComments(await readFile(file, "utf8"));
 
         for (const pattern of IMPORT_PATTERNS) {
             for (const match of text.matchAll(pattern)) {
@@ -460,22 +461,22 @@ export async function collectUsage(
 
                     entry.sites.push({
                         file: path,
-                        line: text.slice(0, at).split('\n').length,
-                        kind: TOOLING_PATH.test(path) ? 'tooling' : 'source',
+                        line: text.slice(0, at).split("\n").length,
+                        kind: TOOLING_PATH.test(path) ? "tooling" : "source",
                     });
                 }
             }
         }
     }
 
-    const scripts = Object.values(manifest.scripts ?? {}).join('\n');
+    const scripts = Object.values(manifest.scripts ?? {}).join("\n");
 
     for (const entry of usage.values()) {
         if (Object.hasOwn(requires, entry.name)) {
             entry.bin = (await binNames(entry.name, lockfile)).some((bin) =>
                 new RegExp(
                     `(^|[\\s;&|(])${escapeRegExp(bin)}($|[\\s;&|)])`,
-                    'm',
+                    "m",
                 ).test(scripts),
             );
         }
@@ -497,7 +498,7 @@ async function sourceFiles(directory, found = []) {
         } else if (
             entry.isFile() &&
             SOURCE_EXTENSIONS.has(extname(entry.name)) &&
-            !entry.name.endsWith('.d.ts') &&
+            !entry.name.endsWith(".d.ts") &&
             (await stat(path)).size < 1_000_000
         ) {
             found.push(path);
@@ -511,9 +512,9 @@ async function sourceFiles(directory, found = []) {
 function stripComments(text) {
     return text
         .replace(/\/\*[\s\S]*?\*\//g, (comment) =>
-            comment.replace(/[^\n]/g, ' '),
+            comment.replace(/[^\n]/g, " "),
         )
-        .replace(/(^|[^:\\'"`])\/\/[^\n]*/g, '$1');
+        .replace(/(^|[^:\\'"`])\/\/[^\n]*/g, "$1");
 }
 
 /** The package a specifier loads from: "@scope/pkg/sub" → "@scope/pkg", "pkg/sub" → "pkg". */
@@ -523,9 +524,9 @@ function packageOf(specifier) {
         return null;
     }
 
-    const parts = specifier.split('/');
+    const parts = specifier.split("/");
 
-    return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+    return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
 /** The commands a package installs, falling back to its unscoped name when node_modules isn't there. */
@@ -533,13 +534,13 @@ async function binNames(name, lockfile) {
     try {
         const manifest = JSON.parse(
             await readFile(
-                join(dirname(lockfile), 'node_modules', name, 'package.json'),
-                'utf8',
+                join(dirname(lockfile), "node_modules", name, "package.json"),
+                "utf8",
             ),
         );
 
-        if (typeof manifest.bin === 'string') {
-            return [name.split('/').pop()];
+        if (typeof manifest.bin === "string") {
+            return [name.split("/").pop()];
         }
 
         if (manifest.bin) {
@@ -549,24 +550,18 @@ async function binNames(name, lockfile) {
         // not installed here
     }
 
-    return [name.split('/').pop()];
+    return [name.split("/").pop()];
 }
 
 function escapeRegExp(text) {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Send one heartbeat. Throws on a missing config, network error or non-2xx response. */
-export async function reportOnce({
-    url = process.env.PATCHWATCH_URL,
-    token = process.env.PATCHWATCH_TOKEN,
+/** The heartbeat body: packages, the service's own dependency ranges and, with a source directory, where they're imported. */
+export async function collectReport({
     lockfile = process.env.PATCHWATCH_LOCKFILE ?? findLockfile(),
     source = process.env.PATCHWATCH_SOURCE,
 } = {}) {
-    if (!url || !token) {
-        throw new Error('Set PATCHWATCH_URL and PATCHWATCH_TOKEN.');
-    }
-
     const dependencies = await collectDependencies(lockfile);
     const roots = await readRoots(lockfile).catch(() => null);
     const usage =
@@ -579,18 +574,27 @@ export async function reportOnce({
               )
             : undefined;
 
+    return { dependencies, requires: roots?.requires, usage };
+}
+
+/** Send one heartbeat. Throws on a missing config, network error or non-2xx response. */
+export async function reportOnce({
+    url = process.env.PATCHWATCH_URL,
+    token = process.env.PATCHWATCH_TOKEN,
+    ...options
+} = {}) {
+    if (!url || !token) {
+        throw new Error("Set PATCHWATCH_URL and PATCHWATCH_TOKEN.");
+    }
+
     const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
+            "Content-Type": "application/json",
+            Accept: "application/json",
         },
-        body: JSON.stringify({
-            dependencies,
-            requires: roots?.requires,
-            usage,
-        }),
+        body: JSON.stringify(await collectReport(options)),
         signal: AbortSignal.timeout(30_000),
     });
 
@@ -618,7 +622,11 @@ export function startPatchwatch({ intervalMs = SIX_HOURS, ...options } = {}) {
     return () => clearInterval(timer);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-    await reportOnce();
-    console.log('[patchwatch] heartbeat sent');
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+    if (process.argv.includes("--dry-run")) {
+        console.log(JSON.stringify(await collectReport()));
+    } else {
+        await reportOnce();
+        console.log("[patchwatch] heartbeat sent");
+    }
 }

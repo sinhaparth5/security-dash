@@ -1,4 +1,4 @@
-export type Status = 'green' | 'yellow' | 'red' | 'unknown';
+export type Status = "green" | "yellow" | "red" | "unknown";
 
 export type Advisory = {
     id: number;
@@ -8,6 +8,10 @@ export type Advisory = {
     summary: string | null;
     fixed_version: string | null;
     affected_packages: string[];
+    /** Vulnerable Go functions, as "import/path.Func". */
+    affected_symbols: string[];
+    /** Whether the code reaches it (for Go: a vulnerable function is linked); null when unknown. */
+    reachable: boolean | null;
     malicious: boolean;
     known_exploited: boolean;
     epss: number | null;
@@ -22,7 +26,7 @@ export type Advisory = {
 export type AdvisoryTriage = {
     urgency: number;
     urgency_confidence: number;
-    action: 'upgrade' | 'investigate' | 'accept' | 'replace';
+    action: "upgrade" | "investigate" | "accept" | "replace";
     action_confidence: number;
 };
 
@@ -61,21 +65,25 @@ export type StatusHistory = {
 
 export type Dependency = {
     id: number;
-    ecosystem: 'go' | 'npm' | 'runtime' | 'image';
+    ecosystem: "go" | "npm" | "runtime" | "image";
     name: string;
     version: string;
     latest_version: string | null;
     status: Status;
     eol_at: string | null;
     pull_request_url: string | null;
-    pull_request_state: 'open' | 'merged' | 'closed' | null;
+    pull_request_state: "open" | "merged" | "closed" | null;
     /** The popular npm package this name is one typo away from. */
     lookalike: string | null;
+    /** Release signals worth a second look: they inform, they don't grade. */
+    supply_chain: SupplyChainSignal[];
+    /** The Go reporter sent the functions linked into the binary. */
+    symbols_scanned: boolean;
     malicious: boolean;
     /** In the service's own package.json; null when the reporter sent no graph. */
     direct: boolean | null;
     /** How the usage scan saw it; null without a scan. */
-    usage: 'source' | 'tooling' | 'unused' | null;
+    usage: "source" | "tooling" | "unused" | null;
     import_sites: ImportSite[];
     /** Does the service's code lead to it? Only set for packages with advisories; null when unknown. */
     reachable: boolean | null;
@@ -85,15 +93,20 @@ export type Dependency = {
     advisories: Advisory[];
 };
 
+export type SupplyChainSignal = {
+    signal: "fresh" | "install_script" | "provenance_dropped" | "new_publisher";
+    detail: string;
+};
+
 export type ImportSite = {
     file: string;
     line: number;
-    kind: 'source' | 'tooling';
+    kind: "source" | "tooling";
 };
 
 /** One step of the upgrade plan, cheapest first. */
 export type FixStep = {
-    action: 'refresh' | 'bump' | 'override';
+    action: "refresh" | "bump" | "override";
     package: string;
     from: string | null;
     to: string;
@@ -108,8 +121,11 @@ export type MonitoredService = {
     name: string;
     environment: string;
     repository: string | null;
+    /** Fed by patchwatch-bot scanning the repository on every push. */
+    watch_repository: boolean;
     usage_scanned_at: string | null;
     fix_plan: FixStep[];
+    fix_plan_pull_request_url: string | null;
     status: Status;
     status_changed_at: string | null;
     evaluated_at: string | null;
@@ -164,7 +180,7 @@ export type AuditEvent = {
 };
 
 export type FleetPackage = {
-    ecosystem: Dependency['ecosystem'];
+    ecosystem: Dependency["ecosystem"];
     name: string;
     status: Status;
     services_count: number;
@@ -186,4 +202,11 @@ export type NewsArticle = {
     /** Jev: 0 background, 1 worth knowing, 2 important, 3 act now. */
     importance: number | null;
     importance_confidence: number | null;
+};
+
+export type WatchableRepository = {
+    full_name: string;
+    private: boolean;
+    html_url: string;
+    service_id: number | null;
 };

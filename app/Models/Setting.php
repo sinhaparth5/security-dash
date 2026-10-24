@@ -20,6 +20,10 @@ class Setting extends Model
         'services.typesafe.key' => true,
         'services.typesafe.model' => false,
         'services.github.pr_token' => true,
+        'services.github.app_id' => false,
+        'services.github.app_slug' => false,
+        'services.github.app_private_key' => true,
+        'services.github.webhook_secret' => true,
     ];
 
     protected $primaryKey = 'key';

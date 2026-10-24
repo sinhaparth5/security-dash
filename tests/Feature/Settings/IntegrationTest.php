@@ -81,3 +81,33 @@ test('guests cannot read or change integrations', function () {
     $this->put(route('integrations.update'), ['github_pr_token' => 'x'])->assertRedirect(route('login'));
     expect(Setting::count())->toBe(0);
 });
+
+test('creating patchwatch-bot from its manifest saves its credentials, encrypted', function () {
+    $user = User::factory()->create();
+    Http::fake(['api.github.com/app-manifests/code-1/conversions' => Http::response([
+        'id' => 9001, 'slug' => 'patchwatch-bot-acme', 'pem' => "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----", 'webhook_secret' => 'whsec-new',
+    ], 201)]);
+
+    $this->actingAs($user)->get(route('integrations.edit'))
+        ->assertInertia(fn (Assert $page) => $page->where('githubApp.enabled', false)
+            ->where('githubApp.manifest', fn (string $manifest) => json_decode($manifest, true)['hook_attributes']['url'] === route('github.webhook')));
+    $state = session('github_app_state');
+
+    $this->actingAs($user)->get(route('integrations.github-app.callback', ['code' => 'code-1', 'state' => $state]))
+        ->assertRedirect(route('integrations.edit'))
+        ->assertInertiaFlash('toast.type', 'success');
+
+    expect(Setting::config('services.github.app_id'))->toBe('9001')
+        ->and(Setting::config('services.github.app_slug'))->toBe('patchwatch-bot-acme')
+        ->and(DB::table('settings')->where('key', 'services.github.webhook_secret')->value('value'))->not->toContain('whsec-new');
+    $this->assertDatabaseHas('audit_events', ['action' => 'settings.github_app_created']);
+});
+
+test('the manifest callback needs the state this session started it with', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user)->get(route('integrations.edit'));
+
+    $this->actingAs($user)->get(route('integrations.github-app.callback', ['code' => 'code-1', 'state' => 'forged']))->assertForbidden();
+
+    expect(Setting::count())->toBe(0);
+});

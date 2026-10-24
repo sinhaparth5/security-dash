@@ -77,6 +77,8 @@ Nothing extra is needed. The build info is embedded in the binary by default, in
 
 ## Notes
 
+- **Symbol scan:** each heartbeat also lists the functions linked into the binary, read from its own function table (the same data `govulncheck` reads). The linker drops code nothing calls, so when an advisory names vulnerable functions and none of them are in the binary, Patchwatch grades it as a warning instead of Red. Windows binaries skip this.
+
 - **`replace` directives:** the replacement module is reported. Local path replacements (`=> ../mylib`) have no version, so they're skipped.
 - **Your own module isn't reported.** Patchwatch only checks the modules you depend on.
 - **Container images** are reported separately, from CI with Trivy. See [Report container image scans from CI](../../README.md#3-report-container-image-scans-from-ci).

@@ -1,33 +1,61 @@
 <script setup lang="ts">
-import { Form, Head, router } from '@inertiajs/vue3';
-import { Bell, Brain, GitPullRequest, Send } from '@lucide/vue';
-import { ref } from 'vue';
-import IntegrationController from '@/actions/App/Http/Controllers/Settings/IntegrationController';
-import InputError from '@/components/InputError.vue';
-import Panel from '@/components/Panel.vue';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { edit } from '@/routes/integrations';
+import { Form, Head, Link, router } from "@inertiajs/vue3";
+import {
+    Bell,
+    Bot,
+    Brain,
+    ExternalLink,
+    GitPullRequest,
+    Send,
+} from "@lucide/vue";
+import { computed, ref } from "vue";
+import IntegrationController from "@/actions/App/Http/Controllers/Settings/IntegrationController";
+import InputError from "@/components/InputError.vue";
+import Panel from "@/components/Panel.vue";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { edit } from "@/routes/integrations";
+import { index as repositoriesIndex } from "@/routes/repositories";
 
 defineOptions({
     layout: {
-        breadcrumbs: [{ title: 'Integrations', href: edit() }],
+        breadcrumbs: [{ title: "Integrations", href: edit() }],
     },
 });
 
 type Field =
-    | 'webhook_url'
-    | 'typesafe_key'
-    | 'typesafe_model'
-    | 'github_pr_token';
+    "webhook_url" | "typesafe_key" | "typesafe_model" | "github_pr_token";
 
 const props = defineProps<{
     integrations: Record<
         Field,
-        { source: 'saved' | 'env' | null; value: string | null }
+        { source: "saved" | "env" | null; value: string | null }
     >;
+    githubApp: {
+        enabled: boolean;
+        slug: string | null;
+        install_url: string | null;
+        settings_url: string | null;
+        create_url: string;
+        manifest: string;
+        logo_url: string;
+    };
 }>();
+
+const webhookUrl = computed<string>(
+    () => JSON.parse(props.githubApp.manifest).hook_attributes.url,
+);
+
+function forgetGithubApp() {
+    router.delete(IntegrationController.forgetGithubApp.url(), {
+        preserveScroll: true,
+        onBefore: () =>
+            confirm(
+                "Disconnect patchwatch-bot? Checks and PR reviews stop until it is connected again.",
+            ),
+    });
+}
 
 const groups: {
     title: string;
@@ -36,61 +64,61 @@ const groups: {
         name: Field;
         label: string;
         help: string;
-        type: 'password' | 'url' | 'text';
+        type: "password" | "url" | "text";
         placeholder: string;
     }[];
 }[] = [
     {
-        title: 'alerts',
+        title: "alerts",
         icon: Bell,
         fields: [
             {
-                name: 'webhook_url',
-                label: 'Slack or Discord webhook',
-                help: 'Gets the same message as the Red alert mail. Must be https.',
-                type: 'password',
-                placeholder: 'https://hooks.slack.com/services/…',
+                name: "webhook_url",
+                label: "Slack or Discord webhook",
+                help: "Gets the same message as the Red alert mail. Must be https.",
+                type: "password",
+                placeholder: "https://hooks.slack.com/services/…",
             },
         ],
     },
     {
-        title: 'jev triage',
+        title: "jev triage",
         icon: Brain,
         fields: [
             {
-                name: 'typesafe_key',
-                label: 'TypeSafe API key',
-                help: 'Turns on advisory triage and news ranking. Leave unset to skip both.',
-                type: 'password',
-                placeholder: 'ts_…',
+                name: "typesafe_key",
+                label: "TypeSafe API key",
+                help: "Turns on advisory triage and news ranking. Leave unset to skip both.",
+                type: "password",
+                placeholder: "ts_…",
             },
             {
-                name: 'typesafe_model',
-                label: 'Model',
-                help: 'Defaults to jev-latest.',
-                type: 'text',
-                placeholder: 'jev-latest',
+                name: "typesafe_model",
+                label: "Model",
+                help: "Defaults to jev-latest.",
+                type: "text",
+                placeholder: "jev-latest",
             },
         ],
     },
     {
-        title: 'github pull requests',
+        title: "github pull requests",
         icon: GitPullRequest,
         fields: [
             {
-                name: 'github_pr_token',
-                label: 'Fine-grained token',
-                help: 'Needs Contents and Pull requests write access on the service repositories.',
-                type: 'password',
-                placeholder: 'github_pat_…',
+                name: "github_pr_token",
+                label: "Fine-grained token",
+                help: "Needs Contents and Pull requests write access on the service repositories.",
+                type: "password",
+                placeholder: "github_pat_…",
             },
         ],
     },
 ];
 
 const sourceLabel = {
-    saved: 'saved here',
-    env: 'from .env',
+    saved: "saved here",
+    env: "from .env",
 } as const;
 
 const testing = ref(false);
@@ -195,9 +223,9 @@ function testWebhook() {
                         class="size-4 accent-brand"
                     />
                     Remove the saved value{{
-                        field.name === 'typesafe_model'
-                            ? ''
-                            : ' (falls back to .env)'
+                        field.name === "typesafe_model"
+                            ? ""
+                            : " (falls back to .env)"
                     }}
                 </label>
                 <InputError :message="errors[field.name]" />
@@ -210,4 +238,84 @@ function testWebhook() {
             <Button :disabled="processing">Save integrations</Button>
         </div>
     </Form>
+
+    <!-- Outside the form above: creating the app posts a manifest to GitHub. -->
+    <Panel title="patchwatch-bot" :icon="Bot" class="mt-4">
+        <template v-if="githubApp.enabled">
+            <p class="text-sm leading-relaxed">
+                Connected as
+                <a
+                    :href="githubApp.settings_url!"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline"
+                    >{{ githubApp.slug
+                    }}<ExternalLink class="size-3" aria-hidden="true" /><span
+                        class="sr-only"
+                    >
+                        (opens GitHub)</span
+                    ></a
+                >. It posts a check on every push and pull request, keeps one
+                dependency review comment up to date on each PR, and opens fix
+                PRs as itself.
+            </p>
+            <div class="flex flex-wrap gap-2">
+                <Button size="sm" as-child>
+                    <a
+                        :href="githubApp.install_url!"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >Install on repositories</a
+                    >
+                </Button>
+                <Button variant="outline" size="sm" as-child>
+                    <Link :href="repositoriesIndex()">Watch a repository</Link>
+                </Button>
+                <Button variant="ghost" size="sm" @click="forgetGithubApp"
+                    >Disconnect</Button
+                >
+            </div>
+            <div class="flex items-center gap-3 border-t pt-4">
+                <img
+                    :src="githubApp.logo_url"
+                    alt=""
+                    width="48"
+                    height="48"
+                    class="size-12 rounded-lg"
+                />
+                <p class="text-xs leading-relaxed text-muted-foreground">
+                    GitHub doesn't let an app set its own picture.
+                    <a
+                        :href="githubApp.logo_url"
+                        download="patchwatch-bot.png"
+                        class="font-medium text-foreground underline-offset-2 hover:underline"
+                        >Download the logo</a
+                    >, then upload it under Display information in the app's
+                    settings so the bot's avatar is the Patchwatch icon.
+                </p>
+            </div>
+        </template>
+        <form
+            v-else
+            method="post"
+            :action="githubApp.create_url"
+            class="flex flex-col gap-3"
+        >
+            <input type="hidden" name="manifest" :value="githubApp.manifest" />
+            <p class="text-sm leading-relaxed">
+                Create Patchwatch's own GitHub App. GitHub asks you to confirm
+                its name and permissions (checks, contents and pull requests),
+                then sends you back here with it connected.
+            </p>
+            <p class="text-xs text-muted-foreground">
+                Its webhook points at
+                <code class="break-all">{{ webhookUrl }}</code
+                >, which GitHub has to be able to reach.
+            </p>
+            <Button type="submit" size="sm" class="w-fit">
+                <Bot aria-hidden="true" />
+                Create the GitHub App
+            </Button>
+        </form>
+    </Panel>
 </template>

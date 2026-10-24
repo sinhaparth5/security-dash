@@ -23,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // ponytail: trusts any proxy since the container is only reachable through the reverse proxy; pin its IP if it is ever exposed directly.
         $middleware->trustProxies(at: '*');
 
+        // GitHub signs its webhooks instead; the controller checks the signature.
+        $middleware->validateCsrfTokens(except: ['github/webhook']);
+
         $middleware->append(SecurityHeaders::class);
         $middleware->alias(['service.ip' => EnsureServiceIpAllowed::class]);
 

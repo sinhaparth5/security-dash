@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Jobs\EvaluateService;
 use App\Models\AuditEvent;
 use App\Models\Setting;
+use App\Upstream\GitHubApp;
 use Closure;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -26,9 +28,12 @@ class IntegrationController extends Controller
     /**
      * Show where each integration value comes from. Secrets are only ever sent as their last four characters.
      */
-    public function edit(): Response
+    public function edit(Request $request, GitHubApp $app): Response
     {
         $saved = Setting::pluck('value', 'key');
+        // The manifest flow sends this back, so only a flow started here can create the app.
+        $state = $request->session()->get('github_app_state') ?? tap(Str::random(40), fn (string $state) => $request->session()->put('github_app_state', $state));
+        $slug = $app->slug();
 
         return Inertia::render('settings/Integrations', [
             'integrations' => collect(self::FIELDS)->map(function (string $key) use ($saved) {
@@ -43,7 +48,54 @@ class IntegrationController extends Controller
                     },
                 ];
             }),
+            'githubApp' => [
+                'enabled' => $app->enabled(),
+                'slug' => $slug,
+                'install_url' => $slug === null ? null : "https://github.com/apps/{$slug}/installations/new",
+                'settings_url' => $slug === null ? null : "https://github.com/settings/apps/{$slug}",
+                'create_url' => 'https://github.com/settings/apps/new?state='.$state,
+                'manifest' => json_encode(GitHubApp::manifest(), JSON_UNESCAPED_SLASHES),
+                'logo_url' => asset('patchwatch-bot.png'),
+            ],
         ]);
+    }
+
+    /**
+     * Where GitHub sends the browser back after the app is created from the manifest: swap the
+     * one-time code for the app's credentials and save them.
+     */
+    public function createGithubApp(Request $request, GitHubApp $app): RedirectResponse
+    {
+        $state = $request->session()->pull('github_app_state');
+
+        abort_unless(is_string($state) && is_string($request->query('state')) && hash_equals($state, $request->query('state')) && is_string($request->query('code')), 403);
+
+        try {
+            $slug = $app->createFromManifest($request->query('code'));
+        } catch (RequestException $e) {
+            report($e);
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('GitHub did not hand over the app. Create it again from here.')]);
+
+            return to_route('integrations.edit');
+        }
+
+        AuditEvent::record('settings.github_app_created', details: ['slug' => $slug]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':slug is ready. Install it on your repositories, and upload its logo.', ['slug' => $slug])]);
+
+        return to_route('integrations.edit');
+    }
+
+    /**
+     * Forget the app's credentials. The app itself stays on GitHub until it's deleted there.
+     */
+    public function forgetGithubApp(): RedirectResponse
+    {
+        Setting::destroy(array_values(GitHubApp::KEYS));
+
+        AuditEvent::record('settings.github_app_removed');
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('patchwatch-bot is disconnected. Delete it on GitHub too if you no longer need it.')]);
+
+        return to_route('integrations.edit');
     }
 
     /**

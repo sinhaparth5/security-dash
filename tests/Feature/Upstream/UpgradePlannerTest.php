@@ -86,3 +86,19 @@ test('when no release pulls the fix in an override is planned', function () {
 test('accepted advisories are left out of the plan', function () {
     expect(plannedService('7.4.2', [], ['GHSA-mwcw-c2x4-8c55']))->toBe([]);
 });
+
+test('a fix in a release under three days old is passed over for the next vetted one', function () {
+    Http::fake(['api.deps.dev/v3/systems/npm/packages/astro' => Http::response(['versions' => [
+        ['versionKey' => ['version' => '7.5.0'], 'publishedAt' => now()->subHours(3)->toIso8601String()],
+        ['versionKey' => ['version' => '7.6.0'], 'publishedAt' => now()->subDays(10)->toIso8601String()],
+    ]])]);
+
+    $plan = plannedService('7.4.2', [
+        'astro' => ['7.4.2' => ['vite' => '6.0.0'], '7.5.0' => ['vite' => '6.1.0'], '7.6.0' => ['vite' => '6.1.0']],
+        'vite' => ['6.0.0' => ['postcss' => '8.4.31'], '6.1.0' => ['postcss' => '8.5.0']],
+        'postcss' => ['8.4.31' => ['nanoid' => '3.3.6'], '8.5.0' => ['nanoid' => '^3.3.8']],
+        'nanoid' => ['3.3.6' => [], '3.3.8' => []],
+    ]);
+
+    expect($plan[0])->toMatchArray(['action' => 'bump', 'package' => 'astro', 'to' => '7.6.0']);
+});

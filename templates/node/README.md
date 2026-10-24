@@ -87,6 +87,8 @@ For example, in GitHub Actions after deploying:
       PATCHWATCH_TOKEN: ${{ secrets.PATCHWATCH_TOKEN }}
 ```
 
+Add `--dry-run` to print the report as JSON instead of sending it, to see exactly what Patchwatch would get.
+
 A service that hasn't reported for 24 hours shows as **Stale**. If you only report on deploy, expect that flag between releases, or run the command from a daily cron job.
 
 ## Usage scan

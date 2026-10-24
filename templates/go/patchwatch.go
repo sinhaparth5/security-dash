@@ -5,12 +5,17 @@
 //	patchwatch.Start(ctx) // on boot, then every 6 hours
 //
 // The module list comes from the build info embedded in the binary, so it is
-// exactly what was compiled in, not what go.mod hopes for.
+// exactly what was compiled in, not what go.mod hopes for. The functions the
+// linker kept come from the binary too, so Patchwatch can tell whether the
+// vulnerable function an advisory names is in there at all.
 package patchwatch
 
 import (
 	"bytes"
 	"context"
+	"debug/elf"
+	"debug/gosym"
+	"debug/macho"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,8 +23,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -57,6 +64,104 @@ func Dependencies() []Dependency {
 	return deps
 }
 
+// Symbols returns the functions linked into this binary, grouped by package,
+// read from its own function table (pclntab) the way govulncheck reads a
+// binary. The linker drops functions nothing calls, so a function that isn't
+// here can't run. Names use the form advisories use: Func, Type.Method.
+//
+// ponytail: ELF and Mach-O only; Windows binaries report no symbols, so their
+// advisories are graded without them.
+func Symbols() (map[string][]string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+
+	data, text, err := pclntab(exe)
+	if err != nil {
+		return nil, err
+	}
+
+	table, err := gosym.NewTable(nil, gosym.NewLineTable(data, text))
+	if err != nil {
+		return nil, err
+	}
+
+	symbols := map[string][]string{}
+	seen := map[string]bool{}
+
+	for _, fn := range table.Funcs {
+		pkg, name := splitSymbol(fn.Name)
+		if pkg == "" || pkg == "main" || seen[pkg+"."+name] {
+			continue
+		}
+		seen[pkg+"."+name] = true
+		symbols[pkg] = append(symbols[pkg], name)
+	}
+
+	return symbols, nil
+}
+
+func pclntab(path string) ([]byte, uint64, error) {
+	if f, err := elf.Open(path); err == nil {
+		defer f.Close()
+		pcln, text := f.Section(".gopclntab"), f.Section(".text")
+		if pcln == nil || text == nil {
+			return nil, 0, errors.New("no .gopclntab section")
+		}
+		data, err := pcln.Data()
+		return data, text.Addr, err
+	}
+
+	if f, err := macho.Open(path); err == nil {
+		defer f.Close()
+		pcln, text := f.Section("__gopclntab"), f.Section("__text")
+		if pcln == nil || text == nil {
+			return nil, 0, errors.New("no __gopclntab section")
+		}
+		data, err := pcln.Data()
+		return data, text.Addr, err
+	}
+
+	return nil, 0, errors.New("unsupported executable format")
+}
+
+// Closures, go/defer wrappers and package-level initialisers belong to the function they sit in.
+var closure = regexp.MustCompile(`\.(func|gowrap|deferwrap)\d+.*$|^glob\..*$`)
+
+// splitSymbol turns "golang.org/x/net/html.(*Tokenizer[...]).Next" into
+// "golang.org/x/net/html" and "Tokenizer.Next".
+func splitSymbol(full string) (string, string) {
+	// Drop generic instantiations, which may themselves contain dots and slashes.
+	var plain strings.Builder
+	depth := 0
+	for _, r := range full {
+		switch {
+		case r == '[':
+			depth++
+		case r == ']' && depth > 0:
+			depth--
+		case depth == 0:
+			plain.WriteRune(r)
+		}
+	}
+	full = plain.String()
+
+	slash := strings.LastIndex(full, "/")
+	dot := strings.Index(full[slash+1:], ".")
+	if dot < 0 {
+		return "", ""
+	}
+
+	pkg, name := full[:slash+1+dot], full[slash+2+dot:]
+	name = closure.ReplaceAllString(strings.NewReplacer("(*", "", "(", "", ")", "").Replace(name), "")
+	if name == "" {
+		return "", ""
+	}
+
+	return pkg, name
+}
+
 // Report sends one heartbeat to PATCHWATCH_URL using PATCHWATCH_TOKEN.
 func Report(ctx context.Context) error {
 	url, token := os.Getenv("PATCHWATCH_URL"), os.Getenv("PATCHWATCH_TOKEN")
@@ -64,7 +169,14 @@ func Report(ctx context.Context) error {
 		return errors.New("set PATCHWATCH_URL and PATCHWATCH_TOKEN")
 	}
 
-	body, err := json.Marshal(map[string][]Dependency{"dependencies": Dependencies()})
+	payload := map[string]any{"dependencies": Dependencies()}
+	if symbols, err := Symbols(); err == nil {
+		payload["symbols"] = symbols
+	} else {
+		log.Printf("[patchwatch] no symbol scan: %v", err)
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

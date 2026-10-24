@@ -443,3 +443,30 @@ test('a registry outage keeps the previous upgrade plan and still grades the ser
     expect($dependency->fresh()->status)->toBe(ServiceStatus::Red)
         ->and($service->fresh()->fix_plan)->toBe([['action' => 'refresh']]);
 });
+
+test('a fixable Go advisory turns red only when the symbol scan finds its vulnerable function in the binary', function (array $linked, ServiceStatus $expected, ?bool $reachable) {
+    $dependency = Dependency::factory()->create([
+        'ecosystem' => Ecosystem::Go, 'name' => 'golang.org/x/net', 'version' => 'v0.17.0', 'linked_symbols' => $linked,
+    ]);
+    Http::fake([
+        'api.osv.dev/v1/querybatch' => Http::response(['results' => [['vulns' => [['id' => 'GO-2024-2687', 'modified' => '2026-10-01T00:00:00Z']]]]]),
+        'api.osv.dev/v1/vulns/*' => Http::response([
+            'id' => 'GO-2024-2687',
+            'affected' => [[
+                'package' => ['name' => 'golang.org/x/net', 'ecosystem' => 'Go'],
+                'ranges' => [['events' => [['introduced' => '0'], ['fixed' => '0.23.0']]]],
+                'ecosystem_specific' => ['imports' => [['path' => 'golang.org/x/net/http2', 'symbols' => ['Framer.ReadFrame', 'Server.ServeConn']]]],
+            ]],
+        ]),
+        'proxy.golang.org/*' => Http::response(['Version' => 'v0.23.0']),
+    ]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe($expected);
+    expect($dependency->advisories()->first())->reachable->toBe($reachable)
+        ->affected_symbols->toBe(['golang.org/x/net/http2.Framer.ReadFrame', 'golang.org/x/net/http2.Server.ServeConn']);
+})->with([
+    'the vulnerable function is linked' => [['golang.org/x/net/http2.Framer.ReadFrame', 'golang.org/x/net/idna.ToASCII'], ServiceStatus::Red, true],
+    'only other code of the module is linked' => [['golang.org/x/net/http2.Framer.WriteData', 'golang.org/x/net/idna.ToASCII'], ServiceStatus::Yellow, false],
+]);
