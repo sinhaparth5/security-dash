@@ -115,12 +115,10 @@ class Osv
             'summary' => $vulnerability['summary'] ?? null,
             'fixed_version' => $fixedVersion,
             // Go advisories name the vulnerable packages inside the module, e.g. only x/crypto/openpgp.
-            'affected_packages' => $affected
-                ->flatMap(fn (array $affected) => $affected['ecosystem_specific']['imports'] ?? [])
-                ->pluck('path')
-                ->unique()
-                ->values()
-                ->all(),
+            'affected_packages' => array_values(array_unique(array_column(
+                array_merge(...$affected->map(fn (array $affected) => $affected['ecosystem_specific']['imports'] ?? [])->values()->all()),
+                'path',
+            ))),
         ];
     }
 }
