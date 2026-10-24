@@ -91,3 +91,10 @@ test('users can log out', function () {
 
     $this->assertGuest();
 });
+
+test('the signed-in user is shared with their GitHub avatar', function () {
+    $user = User::factory()->create(['github_id' => 42]);
+
+    $this->actingAs($user)->get(route('dashboard'))
+        ->assertInertia(fn ($page) => $page->where('auth.user.avatar', 'https://avatars.githubusercontent.com/u/42?v=4'));
+});

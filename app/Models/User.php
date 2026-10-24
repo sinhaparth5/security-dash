@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Attributes\Appends;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,9 +21,11 @@ use Illuminate\Support\Carbon;
  * @property string|null $remember_token
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property-read string|null $avatar
  */
 #[Fillable(['name', 'email', 'github_id'])]
 #[Hidden(['password', 'remember_token'])]
+#[Appends(['avatar'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -39,5 +42,13 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * The GitHub profile picture, served by the account id so it follows picture changes without storing anything.
+     */
+    public function getAvatarAttribute(): ?string
+    {
+        return $this->github_id === null ? null : "https://avatars.githubusercontent.com/u/{$this->github_id}?v=4";
     }
 }
