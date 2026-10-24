@@ -235,5 +235,7 @@ test('where patchwatch-bot is installed, prs are opened as the bot with an insta
         return openssl_verify("{$header}.{$claims}", $decode($signature), $publicKey, OPENSSL_ALGO_SHA256) === 1
             && json_decode($decode($claims), true)['iss'] === '12345';
     });
+    // GitHub rejects a JSON body of [] here.
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/access_tokens') && $request->body() === '');
     Http::assertSent(fn ($request) => str_ends_with($request->url(), '/pulls') && $request->header('Authorization') === ['Bearer ghs_bot']);
 });

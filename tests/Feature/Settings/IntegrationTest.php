@@ -97,6 +97,8 @@ test('creating patchwatch-bot from its manifest saves its credentials, encrypted
         ->assertRedirect(route('integrations.edit'))
         ->assertInertiaFlash('toast.type', 'success');
 
+    // GitHub rejects a JSON body of [] here.
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/conversions') && $request->body() === '');
     expect(Setting::config('services.github.app_id'))->toBe('9001')
         ->and(Setting::config('services.github.app_slug'))->toBe('patchwatch-bot-acme')
         ->and(DB::table('settings')->where('key', 'services.github.webhook_secret')->value('value'))->not->toContain('whsec-new');

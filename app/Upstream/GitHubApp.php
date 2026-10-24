@@ -118,7 +118,7 @@ class GitHubApp
     {
         $app = Http::baseUrl('https://api.github.com/')->acceptJson()->timeout(20)
             ->withHeaders(['X-GitHub-Api-Version' => '2022-11-28'])
-            ->post('app-manifests/'.rawurlencode($code).'/conversions')
+            ->send('POST', 'app-manifests/'.rawurlencode($code).'/conversions')
             ->throw()
             ->json();
 
@@ -150,7 +150,7 @@ class GitHubApp
             return Crypt::decryptString($cached);
         }
 
-        $token = (string) $this->asApp()->post("app/installations/{$installation}/access_tokens")->throw()->json('token');
+        $token = (string) $this->asApp()->send('POST', "app/installations/{$installation}/access_tokens")->throw()->json('token');
         Cache::put($key, Crypt::encryptString($token), now()->addMinutes(50));
 
         return $token;
