@@ -30,6 +30,7 @@ import ServiceController from '@/actions/App/Http/Controllers/ServiceController'
 import BomController from '@/actions/App/Http/Controllers/BomController';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
 import ManifestGrid from '@/components/ascii/ManifestGrid.vue';
+import DeleteServiceDialog from '@/components/DeleteServiceDialog.vue';
 import DependencyRoute from '@/components/DependencyRoute.vue';
 import FixPlan from '@/components/FixPlan.vue';
 import InputError from '@/components/InputError.vue';
@@ -1293,6 +1294,22 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     }}</Button
                 >
             </div>
+        </section>
+        <section
+            aria-labelledby="delete-heading"
+            class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-card p-4 shadow-card"
+        >
+            <div>
+                <h2 id="delete-heading" class="font-semibold">
+                    Delete service
+                </h2>
+                <p class="text-xs text-muted-foreground">
+                    Removes this service and everything Patchwatch knows about
+                    it. A reporter that still sends heartbeats needs a new
+                    token.
+                </p>
+            </div>
+            <DeleteServiceDialog :service="service" />
         </section>
     </div>
 </template>

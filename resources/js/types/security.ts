@@ -208,5 +208,5 @@ export type WatchableRepository = {
     full_name: string;
     private: boolean;
     html_url: string;
-    service_id: number | null;
+    service: { id: number; name: string; environment: string } | null;
 };

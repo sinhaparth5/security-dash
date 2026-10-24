@@ -55,17 +55,17 @@ class RepositoryController extends Controller
     }
 
     /**
-     * @return list<array{full_name: string, private: bool, html_url: string, service_id: int|null}>
+     * @return list<array{full_name: string, private: bool, html_url: string, service: array{id: int, name: string, environment: string}|null}>
      */
     private function listed(GitHubApp $app): array
     {
-        $watched = Service::where('watch_repository', true)->pluck('id', 'repository')->mapWithKeys(fn (int $id, string $repository) => [strtolower($repository) => $id]);
+        $watched = Service::where('watch_repository', true)->get(['id', 'name', 'environment', 'repository'])->keyBy(fn (Service $service) => strtolower((string) $service->repository));
 
         return array_map(fn (array $repository) => [
             'full_name' => $repository['full_name'],
             'private' => $repository['private'],
             'html_url' => $repository['html_url'],
-            'service_id' => $watched[strtolower($repository['full_name'])] ?? null,
+            'service' => $watched->get(strtolower($repository['full_name']))?->only(['id', 'name', 'environment']),
         ], $app->repositories());
     }
 }

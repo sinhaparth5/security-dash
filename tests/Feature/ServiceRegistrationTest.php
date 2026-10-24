@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\AuditEvent;
+use App\Models\Dependency;
 use App\Models\Service;
 use App\Models\User;
 
@@ -80,4 +82,46 @@ test('guests cannot revoke tokens', function () {
         ->assertRedirect(route('login'));
 
     expect($token->accessToken->fresh())->not->toBeNull();
+});
+
+test('deleting a service needs its name typed and takes its dependencies and tokens with it', function () {
+    $service = Service::factory()->create(['name' => 'billing-api', 'environment' => 'production']);
+    $dependency = Dependency::factory()->for($service)->create();
+    $token = $service->createToken('heartbeat');
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->from(route('services.show', $service))
+        ->delete(route('services.destroy', $service), ['confirmation' => 'billing'])
+        ->assertSessionHasErrors('confirmation');
+
+    expect($service->fresh())->not->toBeNull();
+
+    $this->actingAs($user)
+        ->from(route('services.show', $service))
+        ->delete(route('services.destroy', $service), ['confirmation' => 'billing-api'])
+        ->assertRedirect(route('dashboard'));
+
+    expect($service->fresh())->toBeNull()
+        ->and($dependency->fresh())->toBeNull()
+        ->and($token->accessToken->fresh())->toBeNull()
+        ->and(AuditEvent::where('action', 'service.deleted')->sole()->details)->toBe(['name' => 'billing-api', 'environment' => 'production']);
+});
+
+test('deleting a service from the repositories list stays on the list', function () {
+    $service = Service::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->from(route('repositories.index'))
+        ->delete(route('services.destroy', $service), ['confirmation' => $service->name])
+        ->assertRedirect(route('repositories.index'));
+});
+
+test('guests cannot delete services', function () {
+    $service = Service::factory()->create();
+
+    $this->delete(route('services.destroy', $service), ['confirmation' => $service->name])
+        ->assertRedirect(route('login'));
+
+    expect($service->fresh())->not->toBeNull();
 });

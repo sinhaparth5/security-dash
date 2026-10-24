@@ -8,7 +8,9 @@ use App\Models\StatusChange;
 use App\Upstream\GitHub;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -96,5 +98,28 @@ class ServiceController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => 'New badge URL created. Update any README that used the old one.']);
 
         return back();
+    }
+
+    /**
+     * Delete the service with its dependencies, tokens and history. The request must repeat the
+     * service's name, so a stray click can't do it. Audit events stay, keeping the name in their details.
+     */
+    public function destroy(Request $request, Service $service): RedirectResponse
+    {
+        $request->validate(['confirmation' => ['required', 'string', Rule::in([$service->name])]], [
+            'confirmation.in' => "Type {$service->name} to confirm.",
+        ]);
+
+        DB::transaction(function () use ($service) {
+            AuditEvent::record('service.deleted', $service, ['name' => $service->name, 'environment' => $service->environment]);
+            // Sanctum's tokens are polymorphic, so no foreign key deletes them.
+            $service->tokens()->delete();
+            $service->delete();
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => "Deleted {$service->name} ({$service->environment})."]);
+
+        // The service's own page is gone; anywhere else (the repositories list) stays put.
+        return url()->previous() === route('services.show', $service) ? to_route('dashboard') : back();
     }
 }

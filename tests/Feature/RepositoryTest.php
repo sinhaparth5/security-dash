@@ -48,5 +48,5 @@ test('the repositories page lists the installed repositories and which are watch
         ->get(route('repositories.index'))
         ->assertInertia(fn (Assert $page) => $page->component('repositories/Index')
             ->where('app.install_url', 'https://github.com/apps/patchwatch-bot/installations/new')
-            ->loadDeferredProps(fn (Assert $reload) => $reload->where('repositories.0.service_id', $service->id)));
+            ->loadDeferredProps(fn (Assert $reload) => $reload->where('repositories.0.service.id', $service->id)));
 });

@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::get('services/{service}', [ServiceController::class, 'show'])->name('services.show');
     Route::post('services', [ServiceController::class, 'store'])->middleware('throttle:20,1')->name('services.store');
+    Route::delete('services/{service}', [ServiceController::class, 'destroy'])->name('services.destroy');
     Route::get('tokens', [TokenController::class, 'index'])->name('tokens.index');
     Route::post('services/{service}/tokens', [TokenController::class, 'store'])->middleware('throttle:20,1')->name('services.tokens.store');
     Route::delete('services/{service}/tokens/{token}', [TokenController::class, 'destroy'])->name('services.tokens.destroy');

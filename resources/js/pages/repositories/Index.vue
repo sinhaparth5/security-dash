@@ -4,6 +4,7 @@ import { Bot, ExternalLink, Eye, FolderGit2, Lock } from '@lucide/vue';
 import { ref } from 'vue';
 import RepositoryController from '@/actions/App/Http/Controllers/RepositoryController';
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import DeleteServiceDialog from '@/components/DeleteServiceDialog.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { edit as integrationsEdit } from '@/routes/integrations';
@@ -121,22 +122,27 @@ function watch(repository: WatchableRepository): void {
                         <Lock aria-hidden="true" />
                         Private
                     </Badge>
-                    <Button
-                        v-if="repository.service_id"
-                        variant="outline"
-                        size="sm"
-                        class="ml-auto"
-                        as-child
+                    <div
+                        v-if="repository.service"
+                        class="ml-auto flex flex-wrap gap-2"
                     >
-                        <Link
-                            :href="
-                                ServiceController.show(repository.service_id)
-                            "
-                        >
-                            <Eye aria-hidden="true" />
-                            Watching
-                        </Link>
-                    </Button>
+                        <Button variant="outline" size="sm" as-child>
+                            <Link
+                                :href="
+                                    ServiceController.show(
+                                        repository.service.id,
+                                    )
+                                "
+                            >
+                                <Eye aria-hidden="true" />
+                                Watching
+                            </Link>
+                        </Button>
+                        <DeleteServiceDialog
+                            :service="repository.service"
+                            label="Delete"
+                        />
+                    </div>
                     <Button
                         v-else
                         size="sm"
