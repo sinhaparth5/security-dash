@@ -161,3 +161,55 @@ test('heartbeat cannot report images', function () {
         'dependencies' => [['ecosystem' => 'image', 'name' => 'alpine', 'version' => '3.20']],
     ])->assertJsonValidationErrors('dependencies.0.ecosystem');
 });
+
+test('heartbeat records the dependency graph and where the code imports each package', function () {
+    $this->freezeSecond();
+    $service = Service::factory()->create();
+    $kept = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash.merge', 'version' => '4.6.2']);
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), [
+        'requires' => ['lodash.merge' => '^4.6.0', 'astro' => '^7.4.2'],
+        'dependencies' => [
+            ['ecosystem' => 'npm', 'name' => 'astro', 'version' => '7.4.2', 'requires' => ['vite' => '^6.0.0', 'bad' => ['not-a-range']]],
+            ['ecosystem' => 'npm', 'name' => 'lodash.merge', 'version' => '4.6.2', 'requires' => []],
+            ['ecosystem' => 'npm', 'name' => 'vite', 'version' => '6.0.0'],
+        ],
+        'usage' => [
+            ['name' => 'astro', 'bin' => true, 'sites' => [['file' => 'astro.config.mjs', 'line' => 1, 'kind' => 'tooling']]],
+            ['name' => 'lodash.merge', 'sites' => []],
+        ],
+    ])->assertNoContent();
+
+    expect($service->fresh())
+        ->requires->toBe(['lodash.merge' => '^4.6.0', 'astro' => '^7.4.2'])
+        ->usage_scanned_at->equalTo(now())->toBeTrue();
+    expect($service->dependencies()->where('name', 'astro')->first())
+        ->requires->toBe(['vite' => '^6.0.0'])
+        ->usage->toBe(['sites' => [['file' => 'astro.config.mjs', 'line' => 1, 'kind' => 'tooling']], 'bin' => true]);
+    expect($kept->fresh()->usage)->toBe(['sites' => [], 'bin' => false]);
+    expect($service->dependencies()->where('name', 'vite')->first())->requires->toBeNull()->usage->toBeNull();
+});
+
+test('a heartbeat without a usage scan clears the previous one', function () {
+    $service = Service::factory()->create(['requires' => ['astro' => '^7.4.2'], 'usage_scanned_at' => now()]);
+    $astro = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'astro', 'version' => '7.4.2', 'usage' => ['sites' => [], 'bin' => true]]);
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.heartbeat'), [
+        'dependencies' => [['ecosystem' => 'npm', 'name' => 'astro', 'version' => '7.4.2']],
+    ])->assertNoContent();
+
+    expect($service->fresh())->requires->toBeNull()->usage_scanned_at->toBeNull();
+    expect($astro->fresh()->usage)->toBeNull();
+});
+
+test('heartbeat with a malformed usage scan returns 422', function () {
+    Sanctum::actingAs(Service::factory()->create());
+
+    $this->postJson(route('api.v1.heartbeat'), [
+        'dependencies' => [],
+        'usage' => [['name' => 'astro', 'sites' => [['file' => 'a.ts', 'line' => 0, 'kind' => 'runtime']]]],
+    ])->assertUnprocessable()
+        ->assertJsonValidationErrors(['usage.0.sites.0.line', 'usage.0.sites.0.kind']);
+});

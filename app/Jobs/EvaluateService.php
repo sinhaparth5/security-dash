@@ -6,6 +6,7 @@ use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
 use App\Models\Dependency;
+use App\Models\DependencyGraph;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
@@ -15,6 +16,7 @@ use App\Upstream\GitHub;
 use App\Upstream\Jev;
 use App\Upstream\Osv;
 use App\Upstream\Releases;
+use App\Upstream\UpgradePlanner;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -42,11 +44,12 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * Grade every dependency, then roll the worst grade up to the service:
      * Red = known advisory with a fix to upgrade to (or malware, or a runtime past end of life),
      * Yellow = newer release available or an advisory with no fix released yet, Green = neither.
-     * Advisories with an active risk acceptance don't count towards Red. Images keep the grade their last
-     * CI scan gave them unless every finding has been accepted.
+     * Advisories with an active risk acceptance don't count towards Red, and neither do fixable ones in npm
+     * packages the usage scan shows the code never reaches (malware still does: install scripts run regardless).
+     * Images keep the grade their last CI scan gave them unless every finding has been accepted.
      * Every user is mailed (and the alert webhook posted) when the service first turns Red, or when a malicious package first shows up.
      */
-    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev, GitHub $github): void
+    public function handle(Osv $osv, Releases $releases, Exploitability $exploitability, Jev $jev, GitHub $github, UpgradePlanner $planner): void
     {
         $previousStatus = $this->service->fresh()->status;
         $wasMalicious = $this->hasMaliciousAdvisory();
@@ -54,11 +57,13 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         [$scannedImages, $dependencies] = $this->service->dependencies()->with('advisories')->get()
             ->partition(fn (Dependency $dependency) => $dependency->ecosystem === Ecosystem::Image);
         $osvAdvisories = $osv->advisories($dependencies);
+        $graph = DependencyGraph::of($this->service, $dependencies);
         $isRed = fn (iterable $advisories) => collect($advisories)->pluck('osv_id')->diff($accepted)->isNotEmpty();
         // An advisory with nothing to upgrade to can't be patched, so it warns instead of turning Red.
         $isPatchable = fn (array $advisory) => $advisory['fixed_version'] !== null || preg_match('/^(MAL|EOL)-/', $advisory['osv_id']);
+        $isMalicious = fn (array $advisory) => str_starts_with($advisory['osv_id'], 'MAL-');
 
-        $evaluations = $dependencies->map(function (Dependency $dependency) use ($osvAdvisories, $releases, $isRed, $isPatchable) {
+        $evaluations = $dependencies->map(function (Dependency $dependency) use ($osvAdvisories, $releases, $isRed, $isPatchable, $isMalicious, $graph) {
             $advisories = $osvAdvisories[$dependency->id] ?? [];
             $endOfLife = $releases->endOfLife($dependency);
 
@@ -72,7 +77,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             $isTracked = array_key_exists($dependency->id, $osvAdvisories) || $dependency->ecosystem === Ecosystem::Runtime;
 
             $status = match (true) {
-                $isRed(array_filter($advisories, $isPatchable)) => ServiceStatus::Red,
+                $isRed(array_filter($advisories, $graph->reachable($dependency) === false ? $isMalicious : $isPatchable)) => ServiceStatus::Red,
                 $isRed($advisories) => ServiceStatus::Yellow,
                 $latestVersion !== null && version_compare(Releases::normalize($dependency->version), $latestVersion, '<') => ServiceStatus::Yellow,
                 $isTracked => ServiceStatus::Green,
@@ -116,6 +121,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         });
 
         $this->enrich($exploitability);
+        $this->plan($planner, $accepted->all());
         $this->triage($jev, $accepted->all());
         $this->pullRequests($github);
 
@@ -185,6 +191,23 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             : ['text' => str_replace(['&', '<', '>'], ['&amp;', '&lt;', '&gt;'], $text)];
 
         return rescue(fn () => Http::timeout(10)->withoutRedirecting()->post($url, $payload)->throw()->successful(), false, report: true);
+    }
+
+    /**
+     * Work out the cheapest upgrades that clear the fixable npm advisories, from the dependency graph.
+     *
+     * @param  array<int, string>  $accepted
+     */
+    private function plan(UpgradePlanner $planner, array $accepted): void
+    {
+        $graph = DependencyGraph::of($this->service, $this->service->dependencies()->with('advisories')->get());
+
+        // ponytail: best effort like enrich(), a registry outage keeps the previous plan until the next evaluation.
+        $plan = $graph->known() ? rescue(fn () => $planner->plan($graph, array_values($accepted)), null, report: true) : [];
+
+        if ($plan !== null) {
+            $this->service->update(['fix_plan' => $plan]);
+        }
     }
 
     /**

@@ -12,7 +12,7 @@ use Illuminate\Http\Response;
 class HeartbeatController extends Controller
 {
     /**
-     * Replace the service's dependency manifest with the reported one.
+     * Replace the service's dependency manifest, graph and usage scan with the reported ones.
      * Image rows belong to CI scans and are left alone.
      */
     public function __invoke(HeartbeatRequest $request): Response
@@ -20,12 +20,8 @@ class HeartbeatController extends Controller
         /** @var Service $service */
         $service = $request->user();
 
-        /** @var array<string, array{ecosystem: string, name: string, version: string}> $reported */
-        $reported = $request->safe()->collect('dependencies')
-            ->keyBy(fn (array $dependency) => $dependency['ecosystem'].'|'.$dependency['name'])
-            ->all();
-
-        $service->syncDependencies($reported, [Ecosystem::Go, Ecosystem::Npm, Ecosystem::Runtime]);
+        $service->syncDependencies($request->manifest(), [Ecosystem::Go, Ecosystem::Npm, Ecosystem::Runtime]);
+        $service->update(['requires' => $request->rootRequires(), 'usage_scanned_at' => $request->usageScanned() ? now() : null]);
         EvaluateService::dispatch($service);
 
         return response()->noContent();

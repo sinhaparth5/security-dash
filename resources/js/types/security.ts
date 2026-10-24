@@ -72,7 +72,35 @@ export type Dependency = {
     /** The popular npm package this name is one typo away from. */
     lookalike: string | null;
     malicious: boolean;
+    /** In the service's own package.json; null when the reporter sent no graph. */
+    direct: boolean | null;
+    /** How the usage scan saw it; null without a scan. */
+    usage: 'source' | 'tooling' | 'unused' | null;
+    import_sites: ImportSite[];
+    /** Does the service's code lead to it? Only set for packages with advisories; null when unknown. */
+    reachable: boolean | null;
+    /** Up to three shortest chains from a direct dependency down to this one. */
+    paths: string[][];
+    path_count: number;
     advisories: Advisory[];
+};
+
+export type ImportSite = {
+    file: string;
+    line: number;
+    kind: 'source' | 'tooling';
+};
+
+/** One step of the upgrade plan, cheapest first. */
+export type FixStep = {
+    action: 'refresh' | 'bump' | 'override';
+    package: string;
+    from: string | null;
+    to: string;
+    /** Outside the caret range of the current version. */
+    breaking: boolean;
+    fixes: string[];
+    via: string[];
 };
 
 export type MonitoredService = {
@@ -80,6 +108,8 @@ export type MonitoredService = {
     name: string;
     environment: string;
     repository: string | null;
+    usage_scanned_at: string | null;
+    fix_plan: FixStep[];
     status: Status;
     status_changed_at: string | null;
     evaluated_at: string | null;

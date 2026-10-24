@@ -26,6 +26,8 @@ import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAccepta
 import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
 import ManifestGrid from '@/components/ascii/ManifestGrid.vue';
 import TokenController from '@/actions/App/Http/Controllers/TokenController';
+import DependencyRoute from '@/components/DependencyRoute.vue';
+import FixPlan from '@/components/FixPlan.vue';
 import InputError from '@/components/InputError.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
@@ -185,9 +187,19 @@ const fixCommands = computed(() => {
             }))
             .filter((fix) => fix.version !== null);
 
-    const npm = pinned('npm').map(
-        ({ dependency, version }) => `${dependency.name}@${version}`,
+    // The upgrade plan already covers npm packages it found a route to, and knows better than
+    // installing a transitive package directly.
+    const planned = new Set(
+        props.service.fix_plan.flatMap((step) => step.fixes),
     );
+    const npm = pinned('npm')
+        .filter(({ dependency }) =>
+            dependency.advisories.some(
+                (advisory) =>
+                    !advisory.accepted && !planned.has(advisory.osv_id),
+            ),
+        )
+        .map(({ dependency, version }) => `${dependency.name}@${version}`);
     const go = pinned('go').map(
         ({ dependency, version }) =>
             `${dependency.name}@${version!.startsWith('v') ? version : `v${version}`}`,
@@ -391,6 +403,8 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 </p>
             </div>
         </div>
+
+        <FixPlan v-if="service.fix_plan.length" :plan="service.fix_plan" />
 
         <section
             v-if="fixCommands.length"
@@ -624,6 +638,11 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     : `Open PR to ${fixVersion(dependency)}`
                             }}
                         </Button>
+
+                        <DependencyRoute
+                            :dependency="dependency"
+                            :repository="service.repository"
+                        />
 
                         <ul class="mt-3 space-y-2">
                             <li

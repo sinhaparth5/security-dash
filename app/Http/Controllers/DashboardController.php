@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
 use App\Models\Dependency;
+use App\Models\DependencyGraph;
 use App\Models\RiskAcceptance;
 use App\Models\Service;
 use App\Models\StatusChange;
@@ -136,8 +138,9 @@ class DashboardController extends Controller
     public static function present(Service $service): array
     {
         $accepted = $service->riskAcceptances->filter(fn (RiskAcceptance $acceptance) => $acceptance->isActive())->keyBy('osv_id');
+        $graph = DependencyGraph::of($service, $service->dependencies);
 
-        $dependencies = $service->dependencies->map(function (Dependency $dependency) use ($accepted) {
+        $dependencies = $service->dependencies->map(function (Dependency $dependency) use ($accepted, $graph) {
             $advisories = $dependency->advisories
                 ->sortBy(fn (Advisory $advisory) => [! $advisory->isMalicious(), ! $advisory->known_exploited, -($advisory->epss ?? 0)])
                 ->values()
@@ -169,6 +172,13 @@ class DashboardController extends Controller
                 'pull_request_url' => $dependency->pull_request_url,
                 'pull_request_state' => $dependency->pull_request_state,
                 'lookalike' => $dependency->lookalike(),
+                'direct' => $dependency->ecosystem === Ecosystem::Npm && $graph->known() ? $graph->isDirect($dependency->name) : null,
+                'usage' => $graph->usage($dependency),
+                'import_sites' => $dependency->usage['sites'] ?? [],
+                // Only findings need their route in; paths for every package would bloat the dashboard.
+                'reachable' => $advisories->isEmpty() ? null : $graph->reachable($dependency),
+                'paths' => $advisories->isEmpty() ? [] : array_slice($graph->paths($dependency->name), 0, 3),
+                'path_count' => $advisories->isEmpty() ? 0 : count($graph->paths($dependency->name)),
                 'malicious' => $advisories->contains(fn (array $advisory) => $advisory['malicious'] && ! $advisory['accepted']),
                 'advisories' => $advisories,
             ];
@@ -179,6 +189,8 @@ class DashboardController extends Controller
             'name' => $service->name,
             'environment' => $service->environment,
             'repository' => $service->repository,
+            'usage_scanned_at' => $service->usage_scanned_at?->toIso8601String(),
+            'fix_plan' => $service->fix_plan ?? [],
             'status' => $service->status,
             'status_changed_at' => $service->status_changed_at?->toIso8601String(),
             'evaluated_at' => $service->evaluated_at?->toIso8601String(),

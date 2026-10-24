@@ -3,7 +3,8 @@
 [`patchwatch.mjs`](patchwatch.mjs) is a single file with no dependencies. It needs Node 18 or newer. It sends a heartbeat containing two things:
 
 - the Node runtime version (`process.version`)
-- every production package in your lockfile, including transitive ones
+- every production package in your lockfile, including transitive ones, with the range each one requires, so Patchwatch can show how a vulnerable package gets in and plan the smallest upgrade that fixes it
+- optionally, where your code imports each package (see [Usage scan](#usage-scan))
 
 It reads the lockfiles of npm, pnpm, Yarn and Bun:
 
@@ -34,6 +35,7 @@ Every service posts to the same URL. The token identifies which service is repor
 | `PATCHWATCH_URL`      | yes      |                                        |
 | `PATCHWATCH_TOKEN`    | yes      |                                        |
 | `PATCHWATCH_LOCKFILE` | no       | auto-detected in the working directory |
+| `PATCHWATCH_SOURCE`   | no       | unset: no usage scan                   |
 
 ## 2. Add the file
 
@@ -86,6 +88,24 @@ For example, in GitHub Actions after deploying:
 ```
 
 A service that hasn't reported for 24 hours shows as **Stale**. If you only report on deploy, expect that flag between releases, or run the command from a daily cron job.
+
+## Usage scan
+
+Set `PATCHWATCH_SOURCE` to your source folder (`.` for the repo root) and the reporter also sends where your code imports each package. It reads `.js/.ts/.jsx/.tsx/.mjs/.cjs/.vue/.svelte/.astro/.mdx` files, skipping `node_modules` and build output, and notes which direct dependencies run as a CLI from your `package.json` scripts. Imports from config files, tests and a top-level `scripts/` folder count as tooling.
+
+With a scan, Patchwatch knows which packages your code never reaches: nothing imports or runs them, or anything that pulls them in. Their fixable advisories show as a **warning** instead of turning the service red. Malware still turns it red, because install scripts run whether or not anything imports the package. A direct dependency the scan didn't see is assumed to be used.
+
+Run the scan where the source is, which usually means CI and not the production image:
+
+```yaml
+- run: node scripts/patchwatch.mjs
+  env:
+      PATCHWATCH_URL: ${{ secrets.PATCHWATCH_URL }}
+      PATCHWATCH_TOKEN: ${{ secrets.PATCHWATCH_TOKEN }}
+      PATCHWATCH_SOURCE: .
+```
+
+The scan matches import statements with patterns, not a full parser. Text that only looks like an import can count as a use, which errs towards keeping a finding red, never towards hiding one.
 
 ## Docker
 

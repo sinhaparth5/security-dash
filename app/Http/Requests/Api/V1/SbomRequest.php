@@ -32,13 +32,15 @@ class SbomRequest extends FormRequest
     }
 
     /**
-     * The npm and Go packages in the SBOM, keyed like the heartbeat manifest.
+     * The npm and Go packages in the SBOM, keyed like the heartbeat manifest. npm packages get their
+     * edges from the SBOM's dependency graph (no ranges: an SBOM records what resolved, not what was asked for).
      *
-     * @return array<string, array{ecosystem: string, name: string, version: string}>
+     * @return array<string, array{ecosystem: string, name: string, version: string, requires?: array<string, string|null>|null}>
      */
     public function dependencies(): array
     {
         $dependencies = [];
+        $edges = $this->edges();
 
         foreach ($this->flatten((array) $this->input('components')) as $component) {
             // pkg:type/namespace/name@version?qualifiers#subpath
@@ -52,10 +54,60 @@ class SbomRequest extends FormRequest
 
             if (strlen($name) <= 255 && strlen($version) <= 100) {
                 $dependencies[$ecosystem->value.'|'.$name] = ['ecosystem' => $ecosystem->value, 'name' => $name, 'version' => $version];
+
+                if ($ecosystem === Ecosystem::Npm) {
+                    $dependencies[$ecosystem->value.'|'.$name]['requires'] = $edges === null ? null : $edges[(string) ($component['bom-ref'] ?? '')] ?? [];
+                }
             }
         }
 
         return $dependencies;
+    }
+
+    /**
+     * What the SBOM's own component (the service) depends on directly, or null without a graph.
+     *
+     * @return array<string, string|null>|null
+     */
+    public function rootRequires(): ?array
+    {
+        $root = $this->input('metadata.component.bom-ref');
+        $edges = $this->edges();
+
+        return $edges === null ? null : $edges[is_string($root) ? $root : ''] ?? [];
+    }
+
+    /**
+     * The `dependencies` section as bom-ref => [npm package name => null], or null when the SBOM has none.
+     *
+     * @return array<string, array<string, null>>|null
+     */
+    private function edges(): ?array
+    {
+        $graph = $this->input('dependencies');
+
+        if (! is_array($graph)) {
+            return null;
+        }
+
+        $names = [];
+
+        foreach ($this->flatten((array) $this->input('components')) as $component) {
+            if (is_string($component['bom-ref'] ?? null) && is_string($component['purl'] ?? null) && preg_match('~^pkg:npm/([^@?#]+)@~', $component['purl'], $match)) {
+                $names[$component['bom-ref']] = rawurldecode($match[1]);
+            }
+        }
+
+        $edges = [];
+
+        foreach ($graph as $node) {
+            if (is_array($node) && is_string($node['ref'] ?? null)) {
+                $children = array_filter((array) ($node['dependsOn'] ?? []), fn (mixed $ref) => is_string($ref) && isset($names[$ref]));
+                $edges[$node['ref']] = array_fill_keys(array_map(fn (string $ref) => $names[$ref], $children), null);
+            }
+        }
+
+        return $edges;
     }
 
     /**

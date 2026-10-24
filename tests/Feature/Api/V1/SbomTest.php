@@ -49,3 +49,24 @@ test('an SBOM that is not CycloneDX is rejected', function () {
         ->assertUnprocessable()
         ->assertJsonValidationErrors('bomFormat');
 });
+
+test('an SBOM dependency graph becomes the service graph', function () {
+    $service = Service::factory()->create(['usage_scanned_at' => now()]);
+    Sanctum::actingAs($service);
+
+    $this->postJson(route('api.v1.sbom'), [
+        'bomFormat' => 'CycloneDX',
+        'metadata' => ['component' => ['bom-ref' => 'app']],
+        'components' => [
+            ['bom-ref' => 'astro-ref', 'purl' => 'pkg:npm/astro@7.4.2'],
+            ['bom-ref' => 'vite-ref', 'purl' => 'pkg:npm/vite@6.0.0'],
+        ],
+        'dependencies' => [
+            ['ref' => 'app', 'dependsOn' => ['astro-ref']],
+            ['ref' => 'astro-ref', 'dependsOn' => ['vite-ref', 'unknown-ref']],
+        ],
+    ])->assertNoContent();
+
+    expect($service->fresh())->requires->toBe(['astro' => null])->usage_scanned_at->toBeNull();
+    expect($service->dependencies()->orderBy('name')->pluck('requires', 'name')->all())->toBe(['astro' => ['vite' => null], 'vite' => []]);
+});

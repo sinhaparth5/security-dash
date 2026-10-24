@@ -402,3 +402,44 @@ test('services that opted in get an upgrade pr opened when a dependency turns re
     expect(Http::recorded(fn ($request) => str_ends_with($request->url(), '/pulls'))->count())->toBe(1);
     $this->assertDatabaseHas('audit_events', ['action' => 'pull_request.opened', 'user_id' => null]);
 });
+
+test('a fixable advisory in a package the code never reaches warns instead of turning red', function (string $osvId, ServiceStatus $expected) {
+    $service = Service::factory()->create(['requires' => ['lodash' => '^4.17.0'], 'usage_scanned_at' => now()]);
+    $dependency = Dependency::factory()->for($service)->create([
+        'ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20', 'requires' => [], 'usage' => ['sites' => [], 'bin' => false],
+    ]);
+    fakeUpstream([[['id' => $osvId, 'modified' => '2025-09-29T21:12:31Z']]], osvId: $osvId);
+
+    EvaluateService::dispatchSync($service);
+
+    expect($dependency->fresh()->status)->toBe($expected);
+})->with([
+    'a vulnerability' => ['GHSA-29mw-wpgm-hmr9', ServiceStatus::Yellow],
+    'malware, whose install scripts run regardless' => ['MAL-2026-7299', ServiceStatus::Red],
+]);
+
+test('evaluation stores the upgrade plan for the fixable npm advisories', function () {
+    $service = Service::factory()->create(['requires' => ['lodash' => '^4.17.0']]);
+    Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20', 'requires' => []]);
+    Http::fake(['registry.npmjs.org/lodash' => Http::response(['versions' => ['4.17.20' => [], '4.17.21' => []]])]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($service);
+
+    expect($service->fresh()->fix_plan)->toBe([[
+        'action' => 'refresh', 'package' => 'lodash', 'from' => '4.17.20', 'to' => '4.17.21',
+        'via' => ['lodash'], 'fixes' => ['GHSA-29mw-wpgm-hmr9'], 'breaking' => false,
+    ]]);
+});
+
+test('a registry outage keeps the previous upgrade plan and still grades the service', function () {
+    $service = Service::factory()->create(['requires' => ['lodash' => '^4.17.0'], 'fix_plan' => [['action' => 'refresh']]]);
+    $dependency = Dependency::factory()->for($service)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20', 'requires' => []]);
+    Http::fake(['registry.npmjs.org/lodash' => Http::response(status: 503)]);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+
+    EvaluateService::dispatchSync($service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Red)
+        ->and($service->fresh()->fix_plan)->toBe([['action' => 'refresh']]);
+});

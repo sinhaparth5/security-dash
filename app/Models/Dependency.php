@@ -18,6 +18,8 @@ use Illuminate\Support\Carbon;
  * @property Ecosystem $ecosystem
  * @property string $name
  * @property string $version
+ * @property array<string, string|null>|null $requires the packages this one depends on and the range it asks for (npm)
+ * @property array{sites: list<array{file: string, line: int, kind: 'source'|'tooling'}>, bin: bool}|null $usage where the service's code imports it, from the usage scan
  * @property string|null $latest_version
  * @property ServiceStatus $status
  * @property Carbon|null $eol_at
@@ -26,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['ecosystem', 'name', 'version', 'latest_version', 'status', 'eol_at', 'pull_request_url', 'pull_request_state'])]
+#[Fillable(['ecosystem', 'name', 'version', 'requires', 'usage', 'latest_version', 'status', 'eol_at', 'pull_request_url', 'pull_request_state'])]
 class Dependency extends Model
 {
     /** @use HasFactory<DependencyFactory> */
@@ -89,6 +91,8 @@ class Dependency extends Model
     {
         return [
             'ecosystem' => Ecosystem::class,
+            'requires' => 'array',
+            'usage' => 'array',
             'status' => ServiceStatus::class,
             'eol_at' => 'date',
         ];
