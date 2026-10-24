@@ -7,6 +7,7 @@ export type Advisory = {
     severity: string | null;
     summary: string | null;
     fixed_version: string | null;
+    affected_packages: string[];
     malicious: boolean;
     known_exploited: boolean;
     epss: number | null;

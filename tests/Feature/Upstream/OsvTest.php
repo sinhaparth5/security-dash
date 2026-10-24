@@ -42,8 +42,36 @@ test('advisories maps OSV results to each dependency with the nearest fixed vers
         'severity' => 'MODERATE',
         'summary' => 'ReDoS in lodash',
         'fixed_version' => '4.17.21',
+        'affected_packages' => [],
     ]]);
     expect($advisories[$clean->id])->toBe([]);
+});
+
+test('advisories without a fixed version keep the affected Go packages', function () {
+    $crypto = Dependency::factory()->create(['ecosystem' => Ecosystem::Go, 'name' => 'golang.org/x/crypto', 'version' => 'v0.58.0']);
+
+    Http::fake([
+        'api.osv.dev/v1/querybatch' => Http::response(['results' => [
+            ['vulns' => [['id' => 'GO-2026-5932', 'modified' => '2026-10-01T00:00:00Z']]],
+        ]]),
+        'api.osv.dev/v1/vulns/GO-2026-5932' => Http::response([
+            'id' => 'GO-2026-5932',
+            'summary' => 'Unmaintained OpenPGP implementation',
+            'affected' => [[
+                'package' => ['name' => 'golang.org/x/crypto', 'ecosystem' => 'Go'],
+                'ranges' => [['events' => [['introduced' => '0']]]],
+                'ecosystem_specific' => ['imports' => [
+                    ['path' => 'golang.org/x/crypto/openpgp'],
+                    ['path' => 'golang.org/x/crypto/openpgp/armor'],
+                ]],
+            ]],
+        ]),
+    ]);
+
+    $advisory = app(Osv::class)->advisories([$crypto])[$crypto->id][0];
+
+    expect($advisory['fixed_version'])->toBeNull();
+    expect($advisory['affected_packages'])->toBe(['golang.org/x/crypto/openpgp', 'golang.org/x/crypto/openpgp/armor']);
 });
 
 test('advisories queries the Go runtime as stdlib and skips ecosystems OSV does not track', function () {

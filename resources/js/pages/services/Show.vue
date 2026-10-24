@@ -73,13 +73,28 @@ const props = defineProps<{
 
 usePoll(60_000, { only: ['service', 'history'] });
 
+/** A Yellow dependency with an open advisory has no fix released yet, so it gets a card too. */
+function hasCard(dependency: Dependency): boolean {
+    return (
+        dependency.status === 'red' ||
+        (dependency.status === 'yellow' &&
+            dependency.advisories.some((advisory) => !advisory.accepted))
+    );
+}
+
 const groups = computed(() =>
-    statusOrder.map((status) => ({
-        status,
-        dependencies: props.service.dependencies.filter(
+    statusOrder.map((status) => {
+        const dependencies = props.service.dependencies.filter(
             (dependency) => dependency.status === status,
-        ),
-    })),
+        );
+
+        return {
+            status,
+            dependencies,
+            cards: dependencies.filter(hasCard),
+            rows: dependencies.filter((dependency) => !hasCard(dependency)),
+        };
+    }),
 );
 
 const severityClass: Record<string, string> = {
@@ -491,11 +506,11 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
 
                 <!-- Vulnerable dependencies get full cards so every advisory and its fix is visible. -->
                 <ul
-                    v-if="group.status === 'red'"
+                    v-if="group.cards.length > 0"
                     class="grid gap-3 xl:grid-cols-2"
                 >
                     <li
-                        v-for="dependency in group.dependencies"
+                        v-for="dependency in group.cards"
                         :key="dependency.id"
                         class="rounded-lg border bg-card p-4 shadow-card"
                     >
@@ -547,14 +562,17 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                         >
                             <span
                                 class="font-medium"
-                                :class="statusMeta.red.text"
+                                :class="statusMeta[dependency.status].text"
                                 >{{ dependency.version }}</span
                             >
                             <template
                                 v-if="
                                     dependency.latest_version &&
                                     dependency.latest_version !==
-                                        dependency.version
+                                        dependency.version.replace(
+                                            /^(go|v)/,
+                                            '',
+                                        )
                                 "
                             >
                                 <span
@@ -615,7 +633,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                 :class="
                                     advisory.accepted
                                         ? 'border border-dashed opacity-75'
-                                        : statusMeta.red.soft
+                                        : statusMeta[dependency.status].soft
                                 "
                             >
                                 <div class="flex flex-wrap items-center gap-2">
@@ -726,6 +744,21 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         advisory.fixed_version
                                     }}</span>
                                 </p>
+                                <p
+                                    v-else-if="dependency.status === 'yellow'"
+                                    class="mt-2 text-muted-foreground"
+                                >
+                                    No fixed version released yet
+                                </p>
+                                <p
+                                    v-if="advisory.affected_packages.length"
+                                    class="mt-1 text-muted-foreground"
+                                >
+                                    Only affects
+                                    <code class="font-mono break-all">{{
+                                        advisory.affected_packages.join(', ')
+                                    }}</code>
+                                </p>
 
                                 <div
                                     v-if="
@@ -827,7 +860,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 </ul>
 
                 <div
-                    v-else
+                    v-if="group.rows.length > 0"
                     class="overflow-hidden rounded-lg border bg-card shadow-card"
                 >
                     <Table>
@@ -843,7 +876,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                         </TableHeader>
                         <TableBody>
                             <TableRow
-                                v-for="dependency in group.dependencies"
+                                v-for="dependency in group.rows"
                                 :key="dependency.id"
                             >
                                 <TableCell

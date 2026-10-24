@@ -54,6 +54,28 @@ test('a dependency with an advisory turns red and stores the advisory', function
     ]);
 });
 
+test('an advisory with no fixed version turns the dependency yellow and mails no one', function () {
+    Notification::fake();
+    User::factory()->create();
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Go, 'name' => 'golang.org/x/crypto', 'version' => 'v0.58.0']);
+    $dependency->service->update(['status' => ServiceStatus::Green]);
+    Http::fake([
+        'api.osv.dev/v1/querybatch' => Http::response(['results' => [['vulns' => [['id' => 'GO-2026-5932', 'modified' => '2026-10-01T00:00:00Z']]]]]),
+        'api.osv.dev/v1/vulns/*' => Http::response([
+            'id' => 'GO-2026-5932',
+            'affected' => [['package' => ['name' => 'golang.org/x/crypto', 'ecosystem' => 'Go'], 'ranges' => [['events' => [['introduced' => '0']]]]]],
+        ]),
+        'proxy.golang.org/*' => Http::response(['Version' => 'v0.58.0']),
+    ]);
+
+    EvaluateService::dispatchSync($dependency->service);
+
+    expect($dependency->fresh()->status)->toBe(ServiceStatus::Yellow);
+    expect($dependency->service->fresh()->status)->toBe(ServiceStatus::Yellow);
+    $this->assertDatabaseHas('advisories', ['dependency_id' => $dependency->id, 'osv_id' => 'GO-2026-5932', 'fixed_version' => null]);
+    Notification::assertNothingSent();
+});
+
 test('an outdated dependency without advisories turns yellow and records the latest version', function () {
     $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.21']);
     fakeUpstream([[]], npmLatest: '4.18.1');

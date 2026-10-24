@@ -15,7 +15,7 @@ class Osv
      * Throws on upstream failure so a caller never mistakes an outage for "no advisories".
      *
      * @param  iterable<Dependency>  $dependencies
-     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null}>>
+     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>}>>
      */
     public function advisories(iterable $dependencies): array
     {
@@ -77,7 +77,7 @@ class Osv
     /**
      * The fields of an OSV vulnerability record this app reads.
      *
-     * @return array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>}>}
+     * @return array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string}>}}>}
      */
     private function vulnerability(string $id, string $modified): array
     {
@@ -88,17 +88,19 @@ class Osv
     }
 
     /**
-     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>}>}  $vulnerability
-     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null}
+     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string}>}}>}  $vulnerability
+     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>}
      */
     private function advisory(array $vulnerability, Dependency $dependency): array
     {
         $package = $this->package($dependency);
         $current = Releases::normalize($dependency->version);
 
-        $fixedVersion = collect($vulnerability['affected'] ?? [])
+        $affected = collect($vulnerability['affected'] ?? [])
             ->filter(fn (array $affected) => ($affected['package']['name'] ?? null) === $package['name']
-                && ($affected['package']['ecosystem'] ?? null) === $package['ecosystem'])
+                && ($affected['package']['ecosystem'] ?? null) === $package['ecosystem']);
+
+        $fixedVersion = $affected
             ->flatMap(fn (array $affected) => $affected['ranges'] ?? [])
             ->flatMap(fn (array $range) => $range['events'] ?? [])
             ->pluck('fixed')
@@ -112,6 +114,13 @@ class Osv
             'severity' => $vulnerability['database_specific']['severity'] ?? null,
             'summary' => $vulnerability['summary'] ?? null,
             'fixed_version' => $fixedVersion,
+            // Go advisories name the vulnerable packages inside the module, e.g. only x/crypto/openpgp.
+            'affected_packages' => $affected
+                ->flatMap(fn (array $affected) => $affected['ecosystem_specific']['imports'] ?? [])
+                ->pluck('path')
+                ->unique()
+                ->values()
+                ->all(),
         ];
     }
 }

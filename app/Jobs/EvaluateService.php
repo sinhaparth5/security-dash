@@ -40,7 +40,8 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     /**
      * Grade every dependency, then roll the worst grade up to the service:
-     * Red = known advisory on the running version (or a runtime past end of life), Yellow = newer release available, Green = neither.
+     * Red = known advisory with a fix to upgrade to (or malware, or a runtime past end of life),
+     * Yellow = newer release available or an advisory with no fix released yet, Green = neither.
      * Advisories with an active risk acceptance don't count towards Red. Images keep the grade their last
      * CI scan gave them unless every finding has been accepted.
      * Every user is mailed (and the alert webhook posted) when the service first turns Red, or when a malicious package first shows up.
@@ -54,8 +55,10 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             ->partition(fn (Dependency $dependency) => $dependency->ecosystem === Ecosystem::Image);
         $osvAdvisories = $osv->advisories($dependencies);
         $isRed = fn (iterable $advisories) => collect($advisories)->pluck('osv_id')->diff($accepted)->isNotEmpty();
+        // An advisory with nothing to upgrade to can't be patched, so it warns instead of turning Red.
+        $isPatchable = fn (array $advisory) => $advisory['fixed_version'] !== null || preg_match('/^(MAL|EOL)-/', $advisory['osv_id']);
 
-        $evaluations = $dependencies->map(function (Dependency $dependency) use ($osvAdvisories, $releases, $isRed) {
+        $evaluations = $dependencies->map(function (Dependency $dependency) use ($osvAdvisories, $releases, $isRed, $isPatchable) {
             $advisories = $osvAdvisories[$dependency->id] ?? [];
             $endOfLife = $releases->endOfLife($dependency);
 
@@ -69,7 +72,8 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             $isTracked = array_key_exists($dependency->id, $osvAdvisories) || $dependency->ecosystem === Ecosystem::Runtime;
 
             $status = match (true) {
-                $isRed($advisories) => ServiceStatus::Red,
+                $isRed(array_filter($advisories, $isPatchable)) => ServiceStatus::Red,
+                $isRed($advisories) => ServiceStatus::Yellow,
                 $latestVersion !== null && version_compare(Releases::normalize($dependency->version), $latestVersion, '<') => ServiceStatus::Yellow,
                 $isTracked => ServiceStatus::Green,
                 default => ServiceStatus::Unknown,

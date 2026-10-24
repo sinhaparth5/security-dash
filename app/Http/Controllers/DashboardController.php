@@ -148,6 +148,7 @@ class DashboardController extends Controller
                     'severity' => $advisory->severity,
                     'summary' => $advisory->summary,
                     'fixed_version' => $advisory->fixed_version,
+                    'affected_packages' => $advisory->affected_packages ?? [],
                     'malicious' => $advisory->isMalicious(),
                     'known_exploited' => $advisory->known_exploited,
                     'epss' => $advisory->epss,
