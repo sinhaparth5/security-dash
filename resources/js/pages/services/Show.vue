@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Form, Head, Link, router, usePoll } from "@inertiajs/vue3";
-import { useClipboard } from "@vueuse/core";
+import { Form, Head, Link, router, usePoll } from '@inertiajs/vue3';
+import { useClipboard } from '@vueuse/core';
 import {
     ArrowLeft,
     Bot,
@@ -22,23 +22,23 @@ import {
     Sparkles,
     TriangleAlert,
     Wrench,
-} from "@lucide/vue";
-import { computed, ref } from "vue";
-import PullRequestController from "@/actions/App/Http/Controllers/PullRequestController";
-import RiskAcceptanceController from "@/actions/App/Http/Controllers/RiskAcceptanceController";
-import ServiceController from "@/actions/App/Http/Controllers/ServiceController";
-import BomController from "@/actions/App/Http/Controllers/BomController";
-import TokenController from "@/actions/App/Http/Controllers/TokenController";
-import ManifestGrid from "@/components/ascii/ManifestGrid.vue";
-import DependencyRoute from "@/components/DependencyRoute.vue";
-import FixPlan from "@/components/FixPlan.vue";
-import InputError from "@/components/InputError.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
-import SupplyChainBadges from "@/components/SupplyChainBadges.vue";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import PullRequestController from '@/actions/App/Http/Controllers/PullRequestController';
+import RiskAcceptanceController from '@/actions/App/Http/Controllers/RiskAcceptanceController';
+import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import BomController from '@/actions/App/Http/Controllers/BomController';
+import TokenController from '@/actions/App/Http/Controllers/TokenController';
+import ManifestGrid from '@/components/ascii/ManifestGrid.vue';
+import DependencyRoute from '@/components/DependencyRoute.vue';
+import FixPlan from '@/components/FixPlan.vue';
+import InputError from '@/components/InputError.vue';
+import StatusBadge from '@/components/StatusBadge.vue';
+import SupplyChainBadges from '@/components/SupplyChainBadges.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Table,
     TableBody,
@@ -46,10 +46,10 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from "@/components/ui/table";
-import { lastSeen, packageUrl, plural, versionsUrl } from "@/lib/format";
-import { statusMeta, statusOrder } from "@/lib/status";
-import { dashboard } from "@/routes";
+} from '@/components/ui/table';
+import { lastSeen, packageUrl, plural, versionsUrl } from '@/lib/format';
+import { statusMeta, statusOrder } from '@/lib/status';
+import { dashboard } from '@/routes';
 import type {
     Advisory,
     AdvisoryTriage,
@@ -57,13 +57,13 @@ import type {
     MonitoredService,
     RiskAcceptance,
     StatusChange,
-} from "@/types";
+} from '@/types';
 
 defineOptions({
     layout: {
         breadcrumbs: [
             {
-                title: "Service health",
+                title: 'Service health',
                 href: dashboard(),
             },
         ],
@@ -78,13 +78,13 @@ const props = defineProps<{
     badgeUrl: string | null;
 }>();
 
-usePoll(60_000, { only: ["service", "history"] });
+usePoll(60_000, { only: ['service', 'history'] });
 
 /** A Yellow dependency with an open advisory has no fix released yet, so it gets a card too. */
 function hasCard(dependency: Dependency): boolean {
     return (
-        dependency.status === "red" ||
-        (dependency.status === "yellow" &&
+        dependency.status === 'red' ||
+        (dependency.status === 'yellow' &&
             dependency.advisories.some((advisory) => !advisory.accepted))
     );
 }
@@ -105,16 +105,16 @@ const groups = computed(() =>
 );
 
 const severityClass: Record<string, string> = {
-    CRITICAL: "bg-status-critical text-status-critical-foreground",
-    HIGH: "bg-status-critical/15 text-status-critical dark:bg-status-critical/35 dark:text-foreground",
+    CRITICAL: 'bg-status-critical text-status-critical-foreground',
+    HIGH: 'bg-status-critical/15 text-status-critical dark:bg-status-critical/35 dark:text-foreground',
     MODERATE:
-        "bg-status-warning/25 text-status-warning-foreground dark:text-status-warning",
-    MEDIUM: "bg-status-warning/25 text-status-warning-foreground dark:text-status-warning",
-    LOW: "bg-muted text-muted-foreground",
+        'bg-status-warning/25 text-status-warning-foreground dark:text-status-warning',
+    MEDIUM: 'bg-status-warning/25 text-status-warning-foreground dark:text-status-warning',
+    LOW: 'bg-muted text-muted-foreground',
 };
 
 function advisoryUrl(osvId: string): string | null {
-    return osvId.startsWith("NODE-") || osvId.startsWith("EOL-")
+    return osvId.startsWith('NODE-') || osvId.startsWith('EOL-')
         ? null
         : `https://osv.dev/vulnerability/${encodeURIComponent(osvId)}`;
 }
@@ -130,18 +130,18 @@ function dueLabel(advisory: Advisory): string {
     const left = new Date(advisory.due_at).getTime() - Date.now();
 
     if (advisory.overdue) {
-        return `Overdue by ${plural(Math.max(1, Math.floor(-left / DAY)), "day", "days")}`;
+        return `Overdue by ${plural(Math.max(1, Math.floor(-left / DAY)), 'day', 'days')}`;
     }
 
     const days = Math.ceil(left / DAY);
 
-    return days <= 1 ? "Fix today" : `Fix within ${days} days`;
+    return days <= 1 ? 'Fix today' : `Fix within ${days} days`;
 }
 
 const pullRequestMeta = {
-    open: { label: "Upgrade PR open", icon: GitPullRequest },
-    merged: { label: "PR merged, waiting for deploy", icon: GitMerge },
-    closed: { label: "PR closed without merging", icon: GitPullRequestClosed },
+    open: { label: 'Upgrade PR open', icon: GitPullRequest },
+    merged: { label: 'PR merged, waiting for deploy', icon: GitMerge },
+    closed: { label: 'PR closed without merging', icon: GitPullRequestClosed },
 };
 
 function endOfLife(
@@ -181,9 +181,9 @@ function fixVersion(dependency: Dependency): string | null {
 
 const fixCommands = computed(() => {
     const red = props.service.dependencies.filter(
-        (dependency) => dependency.status === "red",
+        (dependency) => dependency.status === 'red',
     );
-    const pinned = (ecosystem: Dependency["ecosystem"]) =>
+    const pinned = (ecosystem: Dependency['ecosystem']) =>
         red
             .filter((dependency) => dependency.ecosystem === ecosystem)
             .map((dependency) => ({
@@ -197,7 +197,7 @@ const fixCommands = computed(() => {
     const planned = new Set(
         props.service.fix_plan.flatMap((step) => step.fixes),
     );
-    const npm = pinned("npm")
+    const npm = pinned('npm')
         .filter(({ dependency }) =>
             dependency.advisories.some(
                 (advisory) =>
@@ -205,24 +205,24 @@ const fixCommands = computed(() => {
             ),
         )
         .map(({ dependency, version }) => `${dependency.name}@${version}`);
-    const go = pinned("go").map(
+    const go = pinned('go').map(
         ({ dependency, version }) =>
-            `${dependency.name}@${version!.startsWith("v") ? version : `v${version}`}`,
+            `${dependency.name}@${version!.startsWith('v') ? version : `v${version}`}`,
     );
 
     return [
-        ...(npm.length ? [`npm install ${npm.join(" ")}`] : []),
-        ...(go.length ? [`go get ${go.join(" ")} && go mod tidy`] : []),
+        ...(npm.length ? [`npm install ${npm.join(' ')}`] : []),
+        ...(go.length ? [`go get ${go.join(' ')} && go mod tidy`] : []),
     ];
 });
 
-const urgencyLabels = ["Routine", "Soon", "Urgent", "Emergency"];
+const urgencyLabels = ['Routine', 'Soon', 'Urgent', 'Emergency'];
 
-const actionLabels: Record<AdvisoryTriage["action"], string> = {
-    upgrade: "upgrade",
-    investigate: "check if affected",
-    accept: "likely safe to accept",
-    replace: "remove or replace",
+const actionLabels: Record<AdvisoryTriage['action'], string> = {
+    upgrade: 'upgrade',
+    investigate: 'check if affected',
+    accept: 'likely safe to accept',
+    replace: 'remove or replace',
 };
 
 /** Below this, Jev spread its answer across options, so the label says so. */
@@ -233,8 +233,8 @@ function triageLabel(triage: AdvisoryTriage): string {
     const unsure =
         Math.min(triage.urgency_confidence, triage.action_confidence) <
         CONFIDENT
-            ? " (unsure)"
-            : "";
+            ? ' (unsure)'
+            : '';
 
     return `${urgency}, ${actionLabels[triage.action]}${unsure}`;
 }
@@ -243,7 +243,7 @@ function canBump(dependency: Dependency): boolean {
     return (
         props.canOpenPullRequests &&
         props.service.repository !== null &&
-        ["npm", "go"].includes(dependency.ecosystem) &&
+        ['npm', 'go'].includes(dependency.ecosystem) &&
         fixVersion(dependency) !== null
     );
 }
@@ -259,7 +259,7 @@ function openPullRequest(dependency: Dependency): void {
         {},
         {
             preserveScroll: true,
-            only: ["service"],
+            only: ['service'],
             onStart: () => (openingPullRequest.value = dependency.id),
             onFinish: () => (openingPullRequest.value = null),
         },
@@ -278,11 +278,11 @@ function rotateBadge(): void {
         {},
         {
             preserveScroll: true,
-            only: ["badgeUrl"],
+            only: ['badgeUrl'],
             onBefore: () =>
                 props.badgeUrl === null ||
                 confirm(
-                    "Replace the badge URL? READMEs using the old one will show a broken image.",
+                    'Replace the badge URL? READMEs using the old one will show a broken image.',
                 ),
         },
     );
@@ -305,7 +305,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
         }),
         {
             preserveScroll: true,
-            only: ["service"],
+            only: ['service'],
             onBefore: () =>
                 confirm(
                     `Count ${acceptance.osv_id} against ${props.service.name} again?`,
@@ -379,14 +379,14 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                 {{
                     service.evaluated_at
                         ? lastSeen(service.evaluated_at).toLowerCase()
-                        : "not yet"
+                        : 'not yet'
                 }}
                 ·
                 {{
                     plural(
                         service.dependencies.length,
-                        "dependency",
-                        "dependencies",
+                        'dependency',
+                        'dependencies',
                     )
                 }}
             </p>
@@ -643,7 +643,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             />
                             {{
                                 pullRequestMeta[
-                                    dependency.pull_request_state ?? "open"
+                                    dependency.pull_request_state ?? 'open'
                                 ].label
                             }}
                             <ExternalLink class="size-3" aria-hidden="true" />
@@ -660,7 +660,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             <GitPullRequest aria-hidden="true" />
                             {{
                                 openingPullRequest === dependency.id
-                                    ? "Opening PR…"
+                                    ? 'Opening PR…'
                                     : `Open PR to ${fixVersion(dependency)}`
                             }}
                         </Button>
@@ -794,7 +794,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     v-if="advisory.aliases.length"
                                     class="mt-1 font-mono text-xs text-muted-foreground"
                                 >
-                                    {{ advisory.aliases.join(", ") }}
+                                    {{ advisory.aliases.join(', ') }}
                                 </p>
                                 <p
                                     v-if="advisory.summary"
@@ -828,13 +828,13 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                     Vulnerable
                                     {{
                                         advisory.affected_symbols.length === 1
-                                            ? "function"
-                                            : "functions"
+                                            ? 'function'
+                                            : 'functions'
                                     }}
                                     <code class="font-mono break-all">{{
                                         advisory.affected_symbols
                                             .slice(0, 6)
-                                            .join(", ")
+                                            .join(', ')
                                     }}</code
                                     ><template
                                         v-if="
@@ -856,7 +856,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                 >
                                     Only affects
                                     <code class="font-mono break-all">{{
-                                        advisory.affected_packages.join(", ")
+                                        advisory.affected_packages.join(', ')
                                     }}</code>
                                 </p>
 
@@ -1065,7 +1065,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                                         ></a
                                     >
                                     <template v-else>{{
-                                        dependency.latest_version ?? "—"
+                                        dependency.latest_version ?? '—'
                                     }}</template>
                                 </TableCell>
                             </TableRow>
@@ -1129,11 +1129,11 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                             {{ acceptance.reason }}
                         </p>
                         <p class="mt-1 text-xs text-muted-foreground">
-                            {{ acceptance.accepted_by ?? "Someone" }} ·
+                            {{ acceptance.accepted_by ?? 'Someone' }} ·
                             {{
                                 acceptance.expires_at
                                     ? `until ${acceptance.expires_at}`
-                                    : "no expiry"
+                                    : 'no expiry'
                             }}
                         </p>
                     </div>
@@ -1289,7 +1289,7 @@ function revokeAcceptance(acceptance: RiskAcceptance): void {
                     class="w-fit"
                     @click="rotateBadge"
                     >{{
-                        badgeUrl ? "Rotate badge URL" : "Create badge"
+                        badgeUrl ? 'Rotate badge URL' : 'Create badge'
                     }}</Button
                 >
             </div>

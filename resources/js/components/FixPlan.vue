@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { router } from "@inertiajs/vue3";
-import { useClipboard } from "@vueuse/core";
+import { router } from '@inertiajs/vue3';
+import { useClipboard } from '@vueuse/core';
 import {
     ArrowUpCircle,
     Check,
@@ -10,13 +10,13 @@ import {
     Pin,
     RefreshCw,
     Route,
-} from "@lucide/vue";
-import { computed, ref } from "vue";
-import PullRequestController from "@/actions/App/Http/Controllers/PullRequestController";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { plural } from "@/lib/format";
-import type { FixStep } from "@/types";
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import PullRequestController from '@/actions/App/Http/Controllers/PullRequestController';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { plural } from '@/lib/format';
+import type { FixStep } from '@/types';
 
 /**
  * The upgrade plan worked out from the dependency graph: which change clears which advisories,
@@ -34,7 +34,7 @@ const opening = ref(false);
 
 /** Bumps and overrides change package.json; a plan of lockfile refreshes only has nothing to commit. */
 const changesManifest = computed(() =>
-    props.plan.some((step) => step.action !== "refresh"),
+    props.plan.some((step) => step.action !== 'refresh'),
 );
 
 function openPullRequest(): void {
@@ -43,7 +43,7 @@ function openPullRequest(): void {
         {},
         {
             preserveScroll: true,
-            only: ["service"],
+            only: ['service'],
             onStart: () => (opening.value = true),
             onFinish: () => (opening.value = false),
         },
@@ -55,28 +55,28 @@ const { copy, copied, text: copiedText } = useClipboard({ legacy: true });
 const actionMeta = {
     refresh: {
         icon: RefreshCw,
-        label: "Refresh the lockfile",
-        hint: "Today’s ranges already resolve to a fixed version; package.json stays as it is.",
+        label: 'Refresh the lockfile',
+        hint: 'Today’s ranges already resolve to a fixed version; package.json stays as it is.',
     },
     bump: {
         icon: ArrowUpCircle,
-        label: "Upgrade",
-        hint: "The first release whose own dependencies pull in the fix.",
+        label: 'Upgrade',
+        hint: 'The first release whose own dependencies pull in the fix.',
     },
     override: {
         icon: Pin,
-        label: "Override",
-        hint: "No release pulls the fix in yet. Force it in package.json, then test: the parent may not expect it.",
+        label: 'Override',
+        hint: 'No release pulls the fix in yet. Force it in package.json, then test: the parent may not expect it.',
     },
 };
 
 function command(step: FixStep): string {
     switch (step.action) {
-        case "refresh":
-            return `npm update ${step.via.join(" ")}`;
-        case "bump":
+        case 'refresh':
+            return `npm update ${step.via.join(' ')}`;
+        case 'bump':
             return `npm install ${step.package}@${step.to}`;
-        case "override":
+        case 'override':
             return `"overrides": { "${step.package}": "^${step.to}" }`;
     }
 }
@@ -100,12 +100,12 @@ const advisoryCount = computed(
                 Upgrade plan
             </h2>
             <p class="mt-1 text-sm text-muted-foreground">
-                {{ plural(plan.length, "change", "changes") }} clear
+                {{ plural(plan.length, 'change', 'changes') }} clear
                 {{
                     plural(
                         advisoryCount,
-                        "fixable advisory",
-                        "fixable advisories",
+                        'fixable advisory',
+                        'fixable advisories',
                     )
                 }}, worked out by resolving each chain against the npm registry
                 the way a fresh install would. Cheapest first.
@@ -122,7 +122,7 @@ const advisoryCount = computed(
                     @click="openPullRequest"
                 >
                     <GitPullRequest aria-hidden="true" />
-                    {{ opening ? "Opening PR…" : "Open one PR for the plan" }}
+                    {{ opening ? 'Opening PR…' : 'Open one PR for the plan' }}
                 </Button>
                 <a
                     v-if="pullRequestUrl"
@@ -171,7 +171,7 @@ const advisoryCount = computed(
                         >Major</Badge
                     >
                     <span class="ml-auto text-xs text-muted-foreground">
-                        fixes {{ step.fixes.join(", ") }}
+                        fixes {{ step.fixes.join(', ') }}
                     </span>
                 </div>
                 <p class="text-xs text-muted-foreground">
@@ -179,7 +179,7 @@ const advisoryCount = computed(
                     <template v-if="step.via.length > 1">
                         Chain:
                         <span class="font-mono">{{
-                            step.via.join(" → ")
+                            step.via.join(' → ')
                         }}</span>
                     </template>
                 </p>

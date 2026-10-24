@@ -4,9 +4,9 @@ import {
     FileExclamationPoint,
     Timer,
     UserRoundPen,
-} from "@lucide/vue";
-import { Badge } from "@/components/ui/badge";
-import type { SupplyChainSignal } from "@/types";
+} from '@lucide/vue';
+import { Badge } from '@/components/ui/badge';
+import type { SupplyChainSignal } from '@/types';
 
 /**
  * Release signals on an npm package: not vulnerabilities, but how supply-chain attacks look from outside.
@@ -14,10 +14,10 @@ import type { SupplyChainSignal } from "@/types";
 defineProps<{ signals: SupplyChainSignal[] }>();
 
 const meta = {
-    fresh: { label: "New release", icon: Timer },
-    install_script: { label: "Install script", icon: FileExclamationPoint },
-    provenance_dropped: { label: "Provenance dropped", icon: BadgeAlert },
-    new_publisher: { label: "New publisher", icon: UserRoundPen },
+    fresh: { label: 'New release', icon: Timer },
+    install_script: { label: 'Install script', icon: FileExclamationPoint },
+    provenance_dropped: { label: 'Provenance dropped', icon: BadgeAlert },
+    new_publisher: { label: 'New publisher', icon: UserRoundPen },
 };
 </script>
 

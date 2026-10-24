@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { Deferred, Head, Link, router } from "@inertiajs/vue3";
-import { Bot, ExternalLink, Eye, FolderGit2, Lock } from "@lucide/vue";
-import { ref } from "vue";
-import RepositoryController from "@/actions/App/Http/Controllers/RepositoryController";
-import ServiceController from "@/actions/App/Http/Controllers/ServiceController";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { edit as integrationsEdit } from "@/routes/integrations";
-import { index as repositoriesIndex } from "@/routes/repositories";
-import type { WatchableRepository } from "@/types";
+import { Deferred, Head, Link, router } from '@inertiajs/vue3';
+import { Bot, ExternalLink, Eye, FolderGit2, Lock } from '@lucide/vue';
+import { ref } from 'vue';
+import RepositoryController from '@/actions/App/Http/Controllers/RepositoryController';
+import ServiceController from '@/actions/App/Http/Controllers/ServiceController';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { edit as integrationsEdit } from '@/routes/integrations';
+import { index as repositoriesIndex } from '@/routes/repositories';
+import type { WatchableRepository } from '@/types';
 
 defineOptions({
     layout: {
-        breadcrumbs: [{ title: "Repositories", href: repositoriesIndex() }],
+        breadcrumbs: [{ title: 'Repositories', href: repositoriesIndex() }],
     },
 });
 
@@ -146,8 +146,8 @@ function watch(repository: WatchableRepository): void {
                     >
                         {{
                             watching === repository.full_name
-                                ? "Adding…"
-                                : "Watch"
+                                ? 'Adding…'
+                                : 'Watch'
                         }}
                     </Button>
                 </li>

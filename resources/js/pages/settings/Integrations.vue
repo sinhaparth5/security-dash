@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head, Link, router } from "@inertiajs/vue3";
+import { Form, Head, Link, router } from '@inertiajs/vue3';
 import {
     Bell,
     Bot,
@@ -7,30 +7,33 @@ import {
     ExternalLink,
     GitPullRequest,
     Send,
-} from "@lucide/vue";
-import { computed, ref } from "vue";
-import IntegrationController from "@/actions/App/Http/Controllers/Settings/IntegrationController";
-import InputError from "@/components/InputError.vue";
-import Panel from "@/components/Panel.vue";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { edit } from "@/routes/integrations";
-import { index as repositoriesIndex } from "@/routes/repositories";
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
+import IntegrationController from '@/actions/App/Http/Controllers/Settings/IntegrationController';
+import InputError from '@/components/InputError.vue';
+import Panel from '@/components/Panel.vue';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { edit } from '@/routes/integrations';
+import { index as repositoriesIndex } from '@/routes/repositories';
 
 defineOptions({
     layout: {
-        breadcrumbs: [{ title: "Integrations", href: edit() }],
+        breadcrumbs: [{ title: 'Integrations', href: edit() }],
     },
 });
 
 type Field =
-    "webhook_url" | "typesafe_key" | "typesafe_model" | "github_pr_token";
+    | 'webhook_url'
+    | 'typesafe_key'
+    | 'typesafe_model'
+    | 'github_pr_token';
 
 const props = defineProps<{
     integrations: Record<
         Field,
-        { source: "saved" | "env" | null; value: string | null }
+        { source: 'saved' | 'env' | null; value: string | null }
     >;
     githubApp: {
         enabled: boolean;
@@ -52,7 +55,7 @@ function forgetGithubApp() {
         preserveScroll: true,
         onBefore: () =>
             confirm(
-                "Disconnect patchwatch-bot? Checks and PR reviews stop until it is connected again.",
+                'Disconnect patchwatch-bot? Checks and PR reviews stop until it is connected again.',
             ),
     });
 }
@@ -64,61 +67,61 @@ const groups: {
         name: Field;
         label: string;
         help: string;
-        type: "password" | "url" | "text";
+        type: 'password' | 'url' | 'text';
         placeholder: string;
     }[];
 }[] = [
     {
-        title: "alerts",
+        title: 'alerts',
         icon: Bell,
         fields: [
             {
-                name: "webhook_url",
-                label: "Slack or Discord webhook",
-                help: "Gets the same message as the Red alert mail. Must be https.",
-                type: "password",
-                placeholder: "https://hooks.slack.com/services/…",
+                name: 'webhook_url',
+                label: 'Slack or Discord webhook',
+                help: 'Gets the same message as the Red alert mail. Must be https.',
+                type: 'password',
+                placeholder: 'https://hooks.slack.com/services/…',
             },
         ],
     },
     {
-        title: "jev triage",
+        title: 'jev triage',
         icon: Brain,
         fields: [
             {
-                name: "typesafe_key",
-                label: "TypeSafe API key",
-                help: "Turns on advisory triage and news ranking. Leave unset to skip both.",
-                type: "password",
-                placeholder: "ts_…",
+                name: 'typesafe_key',
+                label: 'TypeSafe API key',
+                help: 'Turns on advisory triage and news ranking. Leave unset to skip both.',
+                type: 'password',
+                placeholder: 'ts_…',
             },
             {
-                name: "typesafe_model",
-                label: "Model",
-                help: "Defaults to jev-latest.",
-                type: "text",
-                placeholder: "jev-latest",
+                name: 'typesafe_model',
+                label: 'Model',
+                help: 'Defaults to jev-latest.',
+                type: 'text',
+                placeholder: 'jev-latest',
             },
         ],
     },
     {
-        title: "github pull requests",
+        title: 'github pull requests',
         icon: GitPullRequest,
         fields: [
             {
-                name: "github_pr_token",
-                label: "Fine-grained token",
-                help: "Needs Contents and Pull requests write access on the service repositories.",
-                type: "password",
-                placeholder: "github_pat_…",
+                name: 'github_pr_token',
+                label: 'Fine-grained token',
+                help: 'Needs Contents and Pull requests write access on the service repositories.',
+                type: 'password',
+                placeholder: 'github_pat_…',
             },
         ],
     },
 ];
 
 const sourceLabel = {
-    saved: "saved here",
-    env: "from .env",
+    saved: 'saved here',
+    env: 'from .env',
 } as const;
 
 const testing = ref(false);
@@ -223,9 +226,9 @@ function testWebhook() {
                         class="size-4 accent-brand"
                     />
                     Remove the saved value{{
-                        field.name === "typesafe_model"
-                            ? ""
-                            : " (falls back to .env)"
+                        field.name === 'typesafe_model'
+                            ? ''
+                            : ' (falls back to .env)'
                     }}
                 </label>
                 <InputError :message="errors[field.name]" />
