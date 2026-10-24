@@ -10,6 +10,7 @@
 ![Laravel 13](https://img.shields.io/badge/Laravel-13-FF2D20?logo=laravel&logoColor=white)
 ![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![PHPStan level 7](https://img.shields.io/badge/PHPStan-level%207-2563eb)
+![Patchwatch status](https://security-dash.astrareconslabs.com/badge/V6JI3sy18ShUMURouAsxsrvLgi82g2L7Nr133gsp.svg)
 
 [Quick start](#quick-start) · [Reporting telemetry](#reporting-telemetry) · [Integrations](#integrations) · [Configuration](#configuration) · [Deployment](#deployment)
 

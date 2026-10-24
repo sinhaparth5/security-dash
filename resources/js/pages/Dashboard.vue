@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router, usePoll } from '@inertiajs/vue3';
-import { useNow } from '@vueuse/core';
+import { useIntervalFn, useNow } from '@vueuse/core';
 import {
     Activity,
     ArrowDown,
@@ -45,7 +45,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { lastSeen, plural } from '@/lib/format';
-import { statusMeta, statusOrder } from '@/lib/status';
+import { describeStatusCounts, statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
 import type {
     Advisory,
@@ -101,7 +101,7 @@ usePoll(60_000, {
 });
 
 // Re-render relative times ("3 minutes ago") without waiting for the next poll.
-const now = useNow({ interval: 30_000 });
+const now = useNow({ scheduler: (tick) => useIntervalFn(tick, 30_000) });
 const refreshedLabel = computed(() =>
     lastSeen(new Date(refreshedAt.value).toISOString(), now.value.getTime()),
 );
@@ -501,15 +501,7 @@ function dependencyBreakdown(service: MonitoredService) {
                             <span
                                 class="flex h-2 gap-[2px] overflow-hidden rounded-full bg-muted"
                                 role="img"
-                                :aria-label="`${ecosystem.name}: ${statusOrder
-                                    .filter(
-                                        (status) => ecosystem.counts[status],
-                                    )
-                                    .map(
-                                        (status) =>
-                                            `${ecosystem.counts[status]} ${statusMeta[status].label.toLowerCase()}`,
-                                    )
-                                    .join(', ')}`"
+                                :aria-label="`${ecosystem.name}: ${describeStatusCounts(ecosystem.counts)}`"
                             >
                                 <span
                                     v-for="status in statusOrder"
@@ -917,12 +909,16 @@ function dependencyBreakdown(service: MonitoredService) {
                                         class="flex h-1.5 overflow-hidden rounded-full bg-muted"
                                         role="img"
                                         :aria-label="
-                                            dependencyBreakdown(service)
-                                                .map(
-                                                    (part) =>
-                                                        `${part.count} ${statusMeta[part.status].label.toLowerCase()}`,
-                                                )
-                                                .join(', ') || 'No dependencies'
+                                            describeStatusCounts(
+                                                Object.fromEntries(
+                                                    dependencyBreakdown(
+                                                        service,
+                                                    ).map((part) => [
+                                                        part.status,
+                                                        part.count,
+                                                    ]),
+                                                ),
+                                            ) || 'No dependencies'
                                         "
                                     >
                                         <span

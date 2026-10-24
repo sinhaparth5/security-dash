@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { statusMeta, statusOrder } from '@/lib/status';
+import { describeStatusCounts, statusMeta, statusOrder } from '@/lib/status';
 import type { Status } from '@/types';
 
 const props = defineProps<{
@@ -50,14 +50,7 @@ function percent(status: Status): number {
                 viewBox="0 0 100 100"
                 class="size-full -rotate-90"
                 role="img"
-                :aria-label="
-                    statusOrder
-                        .map(
-                            (status) =>
-                                `${counts[status]} ${statusMeta[status].label.toLowerCase()}`,
-                        )
-                        .join(', ')
-                "
+                :aria-label="describeStatusCounts(counts)"
             >
                 <circle
                     cx="50"

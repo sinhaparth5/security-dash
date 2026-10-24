@@ -71,3 +71,18 @@ export const statusMeta: Record<
         stroke: 'stroke-status-ok',
     },
 };
+
+/**
+ * "3 needs a fix, 1 updates available": every non-zero count, worst first, for screen readers.
+ */
+export function describeStatusCounts(
+    counts: Partial<Record<Status, number>>,
+): string {
+    return statusOrder
+        .filter((status) => counts[status])
+        .map(
+            (status) =>
+                `${counts[status]} ${statusMeta[status].label.toLowerCase()}`,
+        )
+        .join(', ');
+}
