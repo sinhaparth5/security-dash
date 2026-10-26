@@ -9,6 +9,7 @@ use App\Models\RiskAcceptance;
 use App\Models\Service;
 use App\Models\User;
 use App\Notifications\ServiceTurnedRed;
+use App\Upstream\GitHub;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -470,3 +471,16 @@ test('a fixable Go advisory turns red only when the symbol scan finds its vulner
     'the vulnerable function is linked' => [['golang.org/x/net/http2.Framer.ReadFrame', 'golang.org/x/net/idna.ToASCII'], ServiceStatus::Red, true],
     'only other code of the module is linked' => [['golang.org/x/net/http2.Framer.WriteData', 'golang.org/x/net/idna.ToASCII'], ServiceStatus::Yellow, false],
 ]);
+
+test('the red alert goes out before the best-effort steps, so one that dies cannot swallow it', function () {
+    Notification::fake();
+    $user = User::factory()->create();
+    $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    $dependency->service->update(['status' => ServiceStatus::Green, 'repository' => 'acme/billing']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    $this->mock(GitHub::class, fn ($github) => $github->shouldReceive('enabled')->andThrow(new RuntimeException('GitHub is down')));
+
+    expect(fn () => EvaluateService::dispatchSync($dependency->service))->toThrow(RuntimeException::class, 'GitHub is down');
+
+    Notification::assertSentTo($user, ServiceTurnedRed::class);
+});

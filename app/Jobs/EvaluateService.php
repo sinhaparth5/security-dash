@@ -133,12 +133,8 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             }
         });
 
-        $this->enrich($exploitability);
-        $this->inspect($supplyChain);
-        $this->plan($planner, $accepted->all());
-        $this->triage($jev, $accepted->all());
-        $this->pullRequests($github);
-
+        // Alert before the best-effort steps: if one of them runs the job out of time, the retry already
+        // sees the service Red and would never send it.
         $turnedRed = $previousStatus !== ServiceStatus::Red && $this->service->status === ServiceStatus::Red;
         $turnedMalicious = ! $wasMalicious && $this->hasMaliciousAdvisory();
 
@@ -147,6 +143,12 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
             Notification::send(User::all(), $alert);
             self::postWebhook($alert->summary());
         }
+
+        $this->enrich($exploitability);
+        $this->inspect($supplyChain);
+        $this->plan($planner, $accepted->all());
+        $this->triage($jev, $accepted->all());
+        $this->pullRequests($github);
     }
 
     /**
