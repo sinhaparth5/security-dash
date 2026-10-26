@@ -4,8 +4,11 @@ namespace App\Upstream;
 
 use App\Enums\Ecosystem;
 use App\Models\Dependency;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 class Releases
 {
@@ -32,8 +35,8 @@ class Releases
                 'node' => $this->latestInLine(array_column($this->nodeReleases(), 'version'), $dependency->version, 1),
                 default => null,
             },
-            Ecosystem::Npm => $this->packageLatest('https://registry.npmjs.org/'.str_replace('/', '%2F', $dependency->name).'/latest', 'version'),
-            Ecosystem::Go => $this->packageLatest('https://proxy.golang.org/'.$this->escapeModulePath($dependency->name).'/@latest', 'Version'),
+            Ecosystem::Npm => $this->packageLatest($this->npmUrl($dependency->name), 'version'),
+            Ecosystem::Go => $this->packageLatest($this->goUrl($dependency->name), 'Version'),
             default => null,
         };
     }
@@ -175,17 +178,83 @@ class Releases
         ));
     }
 
+    /**
+     * Look up the latest npm and Go versions 25 at a time, so a big manifest grades inside the job's timeout.
+     * Only answers are cached: anything that failed is left for latest(), which asks again and throws.
+     *
+     * @param  iterable<Dependency>  $dependencies
+     */
+    public function prefetch(iterable $dependencies): void
+    {
+        $missing = collect($dependencies)
+            ->mapWithKeys(fn (Dependency $dependency) => match ($dependency->ecosystem) {
+                Ecosystem::Npm => [$this->npmUrl($dependency->name) => 'version'],
+                Ecosystem::Go => [$this->goUrl($dependency->name) => 'Version'],
+                default => [],
+            })
+            ->reject(fn (string $field, string $url) => Cache::has(self::latestKey($url)));
+
+        foreach ($missing->chunk(25) as $batch) {
+            $responses = Http::pool(fn (Pool $pool) => $batch->map(fn (string $field, string $url) => $pool->as($url)->acceptJson()->timeout(15)->get($url))->all());
+
+            foreach ($batch as $url => $field) {
+                $response = $responses[$url] ?? null;
+                $latest = $response instanceof Response ? self::readLatest($response, $field) : null;
+
+                if ($latest !== null) {
+                    Cache::put(self::latestKey($url), $latest, now()->addHours(6));
+                }
+            }
+        }
+    }
+
     private function packageLatest(string $url, string $field): ?string
     {
-        return Cache::remember('upstream:latest:'.sha1($url), now()->addHours(6), function () use ($url, $field) {
+        $latest = Cache::remember(self::latestKey($url), now()->addHours(6), function () use ($url, $field) {
             $response = Http::acceptJson()->timeout(15)->get($url);
+            $latest = self::readLatest($response, $field);
 
-            if ($response->notFound() || $response->status() === 410) {
-                return null;
+            // An outage must fail the evaluation, never read as "no newer version".
+            if ($latest === null) {
+                $response->throw();
+
+                throw new RuntimeException("{$url} answered without a {$field}.");
             }
 
-            return self::normalize($response->throw()->json($field));
+            return $latest;
         });
+
+        return $latest === '' ? null : $latest;
+    }
+
+    /**
+     * The normalized version in a registry answer, '' for a package the registry doesn't have (cached, unlike null),
+     * or null when the response isn't an answer.
+     */
+    private static function readLatest(Response $response, string $field): ?string
+    {
+        if ($response->notFound() || $response->status() === 410) {
+            return '';
+        }
+
+        $version = $response->successful() ? $response->json($field) : null;
+
+        return is_string($version) ? self::normalize($version) : null;
+    }
+
+    private static function latestKey(string $url): string
+    {
+        return 'upstream:latest:'.sha1($url);
+    }
+
+    private function npmUrl(string $name): string
+    {
+        return 'https://registry.npmjs.org/'.str_replace('/', '%2F', $name).'/latest';
+    }
+
+    private function goUrl(string $module): string
+    {
+        return 'https://proxy.golang.org/'.$this->escapeModulePath($module).'/@latest';
     }
 
     /**

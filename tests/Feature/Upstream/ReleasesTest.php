@@ -4,6 +4,7 @@ use App\Enums\Ecosystem;
 use App\Models\Dependency;
 use App\Upstream\Releases;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -84,3 +85,30 @@ test('nodeSecurityAdvisory returns null once the runtime has every security rele
 
     expect(app(Releases::class)->nodeSecurityAdvisory($dependency))->toBeNull();
 });
+
+test('prefetch caches answers, including a package the registry does not have, so latest asks no more', function () {
+    $express = Dependency::factory()->make(['ecosystem' => Ecosystem::Npm, 'name' => 'express', 'version' => '4.17.0']);
+    $private = Dependency::factory()->make(['ecosystem' => Ecosystem::Npm, 'name' => '@acme/internal', 'version' => '1.0.0']);
+    Http::fake([
+        'registry.npmjs.org/express/latest' => Http::response(['version' => '4.21.2']),
+        'registry.npmjs.org/*' => Http::response(null, 404),
+    ]);
+    $releases = app(Releases::class);
+
+    $releases->prefetch([$express, $private]);
+    $sent = count(Http::recorded());
+
+    expect($releases->latest($express))->toBe('4.21.2');
+    expect($releases->latest($private))->toBeNull();
+    expect(Http::recorded())->toHaveCount($sent);
+});
+
+test('a lookup that failed during prefetch still fails grading instead of reading as no newer version', function () {
+    $express = Dependency::factory()->make(['ecosystem' => Ecosystem::Npm, 'name' => 'express', 'version' => '4.17.0']);
+    Http::fake(['registry.npmjs.org/*' => Http::response('', 503)]);
+    $releases = app(Releases::class);
+
+    $releases->prefetch([$express]);
+
+    $releases->latest($express);
+})->throws(RequestException::class);

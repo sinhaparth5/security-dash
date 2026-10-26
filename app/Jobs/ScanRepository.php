@@ -10,6 +10,7 @@ use App\Upstream\RepositoryScanner;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use RuntimeException;
+use Throwable;
 
 /**
  * Feed a watched service from its repository: read the dependencies at a commit on the default branch,
@@ -46,11 +47,22 @@ class ScanRepository implements ShouldQueue
             }
 
             return;
+        } catch (Throwable $e) {
+            self::abandon($github, $repository, $sha, $check);
+
+            throw $e;
         }
 
-        $this->service->syncDependencies($scan['dependencies'], [Ecosystem::Go, Ecosystem::Npm]);
-        $this->service->update(['requires' => $scan['requires'], 'usage_scanned_at' => $scan['usage_scanned'] ? now() : null]);
-        EvaluateService::dispatchSync($this->service);
+        // Past the scan a RuntimeException can be a database error, so nothing here is shown on the check.
+        try {
+            $this->service->syncDependencies($scan['dependencies'], [Ecosystem::Go, Ecosystem::Npm]);
+            $this->service->update(['requires' => $scan['requires'], 'usage_scanned_at' => $scan['usage_scanned'] ? now() : null]);
+            EvaluateService::dispatchSync($this->service);
+        } catch (Throwable $e) {
+            self::abandon($github, $repository, $sha, $check);
+
+            throw $e;
+        }
 
         if ($check === null) {
             return;
@@ -85,5 +97,18 @@ class ScanRepository implements ShouldQueue
                 ]),
             ],
         ], $check);
+    }
+
+    /**
+     * Close a check the job can't finish, so the commit doesn't show it in progress forever. A retry opens a new one.
+     */
+    public static function abandon(GitHub $github, string $repository, string $sha, ?int $check): void
+    {
+        if ($check !== null) {
+            rescue(fn () => $github->checkRun($repository, $sha, ['status' => 'completed', 'conclusion' => 'neutral', 'output' => [
+                'title' => 'Patchwatch couldn\'t finish',
+                'summary' => 'Something went wrong while grading this commit (GitHub, an advisory source or Patchwatch itself). The job is retried; until then this commit isn\'t graded.',
+            ]], $check), report: false);
+        }
     }
 }

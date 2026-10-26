@@ -34,6 +34,11 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public int $backoff = 60;
 
+    /**
+     * Under the database queue's 90-second retry_after, so a slow evaluation isn't picked up twice.
+     */
+    public int $timeout = 85;
+
     public function __construct(public Service $service) {}
 
     public function uniqueId(): string
@@ -59,6 +64,7 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
         [$scannedImages, $dependencies] = $this->service->dependencies()->with('advisories')->get()
             ->partition(fn (Dependency $dependency) => $dependency->ecosystem === Ecosystem::Image);
         $osvAdvisories = $osv->advisories($dependencies);
+        $releases->prefetch($dependencies);
         $graph = DependencyGraph::of($this->service, $dependencies);
         $isRed = fn (iterable $advisories) => collect($advisories)->pluck('osv_id')->diff($accepted)->isNotEmpty();
         // An advisory with nothing to upgrade to can't be patched, so it warns instead of turning Red.

@@ -16,6 +16,7 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * Review the dependency changes in a pull request as patchwatch-bot: scan the base and the head,
@@ -44,6 +45,17 @@ class ReviewPullRequest implements ShouldQueue
         $check = $github->checkRun($this->repository, $this->head, ['status' => 'in_progress', 'output' => ['title' => 'Reviewing dependency changes…', 'summary' => 'Patchwatch is comparing this PR\'s lockfiles with its base.']]);
 
         try {
+            $this->review($check, $scanner, $github, $osv, $supplyChain);
+        } catch (Throwable $e) {
+            ScanRepository::abandon($github, $this->repository, $this->head, $check);
+
+            throw $e;
+        }
+    }
+
+    private function review(int $check, RepositoryScanner $scanner, GitHub $github, Osv $osv, SupplyChain $supplyChain): void
+    {
+        try {
             $after = $scanner->scan($this->repository, $this->head);
         } catch (RuntimeException $e) {
             $github->checkRun($this->repository, $this->head, ['status' => 'completed', 'conclusion' => 'neutral', 'output' => ['title' => 'Couldn\'t read the dependencies', 'summary' => $e->getMessage()]], $check);
@@ -51,8 +63,13 @@ class ReviewPullRequest implements ShouldQueue
             return;
         }
 
-        // A base without lockfiles yet means every package is new.
-        $before = rescue(fn () => $scanner->scan($this->repository, $this->base), ['dependencies' => [], 'requires' => null, 'usage_scanned' => false], report: false);
+        // A base without lockfiles yet means every package is new. Only that: a base GitHub failed to send
+        // would blame the PR for every advisory already on the branch.
+        try {
+            $before = $scanner->scan($this->repository, $this->base);
+        } catch (RuntimeException) {
+            $before = ['dependencies' => [], 'requires' => null, 'usage_scanned' => false];
+        }
 
         $ids = 0;
         $model = function (array $entry) use (&$ids): Dependency {

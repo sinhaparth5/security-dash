@@ -50,3 +50,14 @@ test('the repositories page lists the installed repositories and which are watch
             ->where('app.install_url', 'https://github.com/apps/patchwatch-bot/installations/new')
             ->loadDeferredProps(fn (Assert $reload) => $reload->where('repositories.0.service.id', $service->id)));
 });
+
+test('a repository whose name another watched repository already uses does not take over its service', function () {
+    $service = Service::factory()->create(['name' => 'billing-api', 'environment' => 'main', 'repository' => 'other/billing-api', 'watch_repository' => true]);
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('repositories.store'), ['repository' => 'acme/billing-api'])
+        ->assertSessionHasErrors('repository');
+
+    expect($service->fresh()->repository)->toBe('other/billing-api');
+    Queue::assertNothingPushed();
+});

@@ -45,6 +45,12 @@ class RepositoryController extends Controller
             'name' => ltrim(Str::after($repository['full_name'], '/'), '._-') ?: 'repository',
             'environment' => trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $repository['default_branch']), '._-') ?: 'main',
         ]);
+
+        // Services are named after the repository alone, so acme/api and other/api would share one and the second would take it over.
+        if ($service->repository !== null && strcasecmp($service->repository, $repository['full_name']) !== 0) {
+            throw ValidationException::withMessages(['repository' => "{$service->name} ({$service->environment}) already follows {$service->repository}. Rename that service first."]);
+        }
+
         $service->update(['repository' => $repository['full_name'], 'watch_repository' => true]);
 
         AuditEvent::record('service.repository_watched', $service, ['repository' => $repository['full_name']]);

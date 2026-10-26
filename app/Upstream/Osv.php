@@ -4,6 +4,9 @@ namespace App\Upstream;
 
 use App\Enums\Ecosystem;
 use App\Models\Dependency;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -28,6 +31,7 @@ class Osv
         foreach ($queryable->chunk(1000) as $chunk) {
             $batch = array_values($chunk->all());
             $results = $this->queryBatch($batch);
+            $this->prefetch(collect($results)->flatMap(fn (array $result) => $result['vulns'] ?? []));
 
             foreach ($batch as $index => $dependency) {
                 $advisories[$dependency->id] = array_map(
@@ -56,22 +60,42 @@ class Osv
     }
 
     /**
-     * One OSV querybatch call: results line up with the dependencies by index.
+     * OSV querybatch results, lined up with the dependencies by index. OSV pages a query past ~1,000 vulns,
+     * or a batch past ~3,000, so pages are followed until none is left: a dropped page would read as no advisories.
      *
      * @param  list<Dependency>  $dependencies
      * @return list<array{vulns?: list<array{id: string, modified: string}>}>
      */
     private function queryBatch(array $dependencies): array
     {
-        return Http::acceptJson()->timeout(30)->retry(2, 500)
-            ->post('https://api.osv.dev/v1/querybatch', [
-                'queries' => array_map(fn (Dependency $dependency) => [
-                    'package' => $this->package($dependency),
-                    'version' => Releases::normalize($dependency->version),
-                ], $dependencies),
-            ])
-            ->throw()
-            ->json('results');
+        $results = array_fill(0, count($dependencies), ['vulns' => []]);
+        $tokens = array_fill(0, count($dependencies), null);
+
+        do {
+            $pending = array_keys($tokens);
+            $page = Http::acceptJson()->timeout(30)->retry(2, 500)
+                ->post('https://api.osv.dev/v1/querybatch', [
+                    'queries' => array_map(fn (int $index) => [
+                        'package' => $this->package($dependencies[$index]),
+                        'version' => Releases::normalize($dependencies[$index]->version),
+                        ...($tokens[$index] === null ? [] : ['page_token' => $tokens[$index]]),
+                    ], $pending),
+                ])
+                ->throw()
+                ->json('results');
+
+            $tokens = [];
+
+            foreach ($pending as $position => $index) {
+                array_push($results[$index]['vulns'], ...$page[$position]['vulns'] ?? []);
+
+                if (isset($page[$position]['next_page_token'])) {
+                    $tokens[$index] = $page[$position]['next_page_token'];
+                }
+            }
+        } while ($tokens !== []);
+
+        return $results;
     }
 
     /**
@@ -81,10 +105,44 @@ class Osv
      */
     private function vulnerability(string $id, string $modified): array
     {
-        return Cache::remember("osv:vuln:{$id}:{$modified}", now()->addDay(), fn () => Http::acceptJson()->timeout(15)->retry(2, 500)
-            ->get('https://api.osv.dev/v1/vulns/'.rawurlencode($id))
+        return Cache::remember(self::vulnerabilityKey($id, $modified), now()->addDay(), fn () => Http::acceptJson()->timeout(15)->retry(2, 500)
+            ->get(self::vulnerabilityUrl($id))
             ->throw()
             ->json());
+    }
+
+    /**
+     * Fetch the vulnerability records not cached yet, 25 at a time, so a cold cache grades inside the job's timeout.
+     * Only records that came back are cached: a failure is left for vulnerability(), which retries and throws.
+     *
+     * @param  Collection<int, array{id: string, modified: string}>  $vulns
+     */
+    private function prefetch(Collection $vulns): void
+    {
+        $missing = $vulns->mapWithKeys(fn (array $vuln) => [self::vulnerabilityKey($vuln['id'], $vuln['modified']) => $vuln['id']])
+            ->reject(fn (string $id, string $key) => Cache::has($key));
+
+        foreach ($missing->chunk(25) as $batch) {
+            $responses = Http::pool(fn (Pool $pool) => $batch->map(fn (string $id, string $key) => $pool->as($key)->acceptJson()->timeout(15)->get(self::vulnerabilityUrl($id)))->all());
+
+            foreach ($batch->keys() as $key) {
+                $response = $responses[$key] ?? null;
+
+                if ($response instanceof Response && $response->successful() && is_array($response->json())) {
+                    Cache::put($key, $response->json(), now()->addDay());
+                }
+            }
+        }
+    }
+
+    private static function vulnerabilityKey(string $id, string $modified): string
+    {
+        return "osv:vuln:{$id}:{$modified}";
+    }
+
+    private static function vulnerabilityUrl(string $id): string
+    {
+        return 'https://api.osv.dev/v1/vulns/'.rawurlencode($id);
     }
 
     /**

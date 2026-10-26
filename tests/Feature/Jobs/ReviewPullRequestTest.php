@@ -2,6 +2,7 @@
 
 use App\Jobs\ReviewPullRequest;
 use App\Upstream\RepositoryScanner;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -99,4 +100,18 @@ test('the earlier review comment is updated in place once the risks are gone', f
 
     Http::assertSent(fn ($request) => $request->method() === 'PATCH' && str_ends_with($request->url(), 'issues/comments/9')
         && str_contains($request['body'], 'Nothing to flag as of `head1`.'));
+});
+
+test('a base github failed to send fails the job instead of blaming the pr for every advisory, and closes the check', function () {
+    $this->mock(RepositoryScanner::class, function ($scanner) {
+        $scanner->shouldReceive('scan')->with('acme/billing', 'head1')->andReturn(scanOf(['lodash' => ['4.17.20']]));
+        $scanner->shouldReceive('scan')->with('acme/billing', 'base1')->andThrow(new ConnectionException('GitHub timed out'));
+    });
+    fakeReview([['GHSA-lodash']]);
+
+    expect(fn () => ReviewPullRequest::dispatchSync('acme/billing', 42, 'head1', 'base1'))->toThrow(ConnectionException::class);
+
+    Http::assertSent(fn ($request) => $request->method() === 'PATCH' && str_ends_with($request->url(), 'check-runs/501')
+        && $request['conclusion'] === 'neutral' && $request['output']['title'] === 'Patchwatch couldn\'t finish');
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'issues/42/comments') && $request->method() === 'POST');
 });

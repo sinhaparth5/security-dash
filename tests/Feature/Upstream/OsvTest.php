@@ -100,3 +100,34 @@ test('advisories throws when OSV is unavailable instead of reporting no advisori
 
     app(Osv::class)->advisories([$dependency]);
 })->throws(RequestException::class);
+
+test('advisories follows OSV page tokens so a paged result is not read as fewer advisories', function () {
+    $stdlib = Dependency::factory()->create(['ecosystem' => Ecosystem::Runtime, 'name' => 'go', 'version' => 'go1.16.0']);
+    $clean = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'left-pad', 'version' => '1.3.0']);
+    $vuln = fn (string $id) => ['id' => $id, 'modified' => '2026-10-01T00:00:00Z'];
+
+    Http::fake([
+        'api.osv.dev/v1/querybatch' => Http::sequence()
+            ->push(['results' => [['vulns' => [$vuln('GO-1')], 'next_page_token' => 'page-2'], []]])
+            ->push(['results' => [['vulns' => [$vuln('GO-2')]]]]),
+        'api.osv.dev/v1/vulns/*' => fn (Request $request) => Http::response(['id' => basename($request->url())]),
+    ]);
+
+    $advisories = app(Osv::class)->advisories([$stdlib, $clean]);
+
+    expect(array_column($advisories[$stdlib->id], 'osv_id'))->toBe(['GO-1', 'GO-2']);
+    expect($advisories[$clean->id])->toBe([]);
+    Http::assertSent(fn (Request $request) => str_ends_with($request->url(), 'querybatch') && $request['queries'] === [
+        ['package' => ['name' => 'stdlib', 'ecosystem' => 'Go'], 'version' => '1.16.0', 'page_token' => 'page-2'],
+    ]);
+});
+
+test('a vulnerability record that failed during prefetch still fails grading instead of being dropped', function () {
+    $lodash = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Http::fake([
+        'api.osv.dev/v1/querybatch' => Http::response(['results' => [['vulns' => [['id' => 'GHSA-1', 'modified' => '2026-10-01T00:00:00Z']]]]]),
+        'api.osv.dev/v1/vulns/*' => Http::response('', 503),
+    ]);
+
+    app(Osv::class)->advisories([$lodash]);
+})->throws(RequestException::class);

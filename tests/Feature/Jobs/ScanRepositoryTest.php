@@ -4,6 +4,7 @@ use App\Enums\ServiceStatus;
 use App\Jobs\ScanRepository;
 use App\Models\Service;
 use App\Upstream\RepositoryScanner;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -49,4 +50,24 @@ test('a repository that cannot be read leaves the service alone and says why on 
 
     expect($service->fresh()->status)->toBe(ServiceStatus::Yellow);
     Http::assertSent(fn ($request) => $request->method() === 'PATCH' && $request['conclusion'] === 'neutral' && $request['output']['summary'] === 'Found no lockfile to read.');
+});
+
+test('a failed evaluation closes the check instead of leaving it in progress', function () {
+    $service = Service::factory()->create(['repository' => 'acme/billing', 'watch_repository' => true]);
+    $this->mock(RepositoryScanner::class, fn ($scanner) => $scanner->shouldReceive('scan')->andReturn([
+        'dependencies' => ['npm|lodash' => ['ecosystem' => 'npm', 'name' => 'lodash', 'version' => '4.17.21']],
+        'requires' => null,
+        'usage_scanned' => false,
+    ]));
+    Http::fake([
+        'api.github.com/repos/acme/billing/installation' => Http::response(['id' => 7]),
+        'api.github.com/app/installations/7/access_tokens' => Http::response(['token' => 'ghs_bot'], 201),
+        'api.github.com/repos/acme/billing/check-runs*' => Http::response(['id' => 501], 201),
+        'api.osv.dev/*' => Http::response('', 503),
+    ]);
+
+    expect(fn () => ScanRepository::dispatchSync($service, 'abc123'))->toThrow(RequestException::class);
+
+    Http::assertSent(fn ($request) => $request->method() === 'PATCH' && str_ends_with($request->url(), 'check-runs/501')
+        && $request['status'] === 'completed' && $request['conclusion'] === 'neutral');
 });
