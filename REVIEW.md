@@ -15,6 +15,7 @@ Report in this order:
 ## What breaks here
 
 **Grading**
+
 - An upstream failure must not be read as "all clear". `Osv` throws on purpose. Any new client feeding Red/Yellow/Green has to fail loudly too. Only enrichment (KEV, EPSS, Jev, PR state, news) may swallow errors.
 - Advisories are rebuilt on each evaluation. Anything stored on an advisory row is lost unless it's carried over by `osv_id`, the way `first_seen_at` is.
 - A version change resets the dependency to `Unknown` and clears its `pull_request_url`. New per-dependency state needs the same reset.
@@ -23,10 +24,12 @@ Report in this order:
 - Version comparisons: check `v`/`go` prefixes (`Releases::normalize()`), pre-releases, and runtimes compared outside their release line.
 
 **Jobs and timing**
+
 - `EvaluateService` is unique per service and also runs hourly. Look for double sends (a `ServiceTurnedRed` mail, a duplicate PR) and for writes that assume no other worker is running.
 - Nothing is graded without the queue worker and the scheduler running. A feature that quietly needs a third process will break in prod.
 
 **Security and auth**
+
 - On `routes/api.php`, `$request->user()` is a `Service`. Code that treats it as a `User`, or a token issued to anything other than a `Service`, is a bug.
 - New API routes need `auth:sanctum` and `service.ip`.
 - Service-reported strings (names, versions, purls) are untrusted. Check where they end up: mail, webhook text, links, SVG badges, shell, or GitHub API paths.
@@ -35,10 +38,12 @@ Report in this order:
 - New sensitive actions need `AuditEvent::record()` and a label in `pages/audit/Index.vue`.
 
 **Database**
+
 - Prod runs on PostgreSQL. Check raw SQL, JSON columns, case-sensitive `LIKE`, and type casts that SQLite tolerates.
 - Migrations run against live data. A non-null column without a default, or a destructive change, can fail the `migrate` container.
 
 **Frontend**
+
 - Importing Wayfinder routes for disabled Fortify or Passkeys features (`@/routes/register`, `password`, `two-factor`, …) fails the build.
 - A status shown by colour alone is a bug. Use `lib/status.ts` or the ASCII `GLYPH`s.
 - Canvas scenes that bypass `useAsciiCanvas` skip off-screen pausing and reduced motion.
@@ -50,4 +55,4 @@ Every behaviour change that can break needs one test that fails when it breaks. 
 
 ## Comments
 
-Keep them few. A main function or class gets a short line on its purpose, and the non-obvious spots get a line on *why*: a deliberate trade-off, an upstream quirk, a security reason. Flag comments that just restate the code. Deliberate limits keep the `// ponytail:` form, naming the limit and how to upgrade.
+Keep them few. A main function or class gets a short line on its purpose, and the non-obvious spots get a line on _why_: a deliberate trade-off, an upstream quirk, a security reason. Flag comments that just restate the code. Deliberate limits keep the `// ponytail:` form, naming the limit and how to upgrade.
