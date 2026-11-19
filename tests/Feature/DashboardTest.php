@@ -170,3 +170,32 @@ test('the dashboard reports how long fixes took by severity and environment, and
                 ['label' => 'staging', 'fixed' => 1, 'median_days' => 5, 'p90_days' => 5, 'on_time' => 0],
             ]));
 });
+
+test('the dashboard reports how long each service sat red over 90 days, counting a service still red up to now', function () {
+    $this->freezeTime();
+    $billing = Service::factory()->create(['name' => 'billing', 'environment' => 'production', 'status' => ServiceStatus::Red]);
+    $api = Service::factory()->create(['name' => 'api', 'environment' => 'production', 'status' => ServiceStatus::Green]);
+    $legacy = Service::factory()->create(['name' => 'legacy', 'environment' => 'staging', 'status' => ServiceStatus::Red, 'created_at' => now()->subDays(5)]);
+    Service::factory()->create(['name' => 'calm', 'status' => ServiceStatus::Green]);
+    $change = fn (Service $service, ServiceStatus $status, int $daysAgo) => $service->statusChanges()->create(['status' => $status])->forceFill(['created_at' => now()->subDays($daysAgo)])->save();
+    // Red from before the window: only the 90 days inside it count, and the spell didn't start in it.
+    $change($billing, ServiceStatus::Red, 100);
+    $change($billing, ServiceStatus::Green, 80);
+    $change($billing, ServiceStatus::Red, 3); // still red
+    $change($api, ServiceStatus::Red, 20);
+    $change($api, ServiceStatus::Yellow, 16);
+    $change($api, ServiceStatus::Red, 10);
+    $change($api, ServiceStatus::Green, 8);
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('redTime.services', [
+                ['id' => $billing->id, 'name' => 'billing', 'environment' => 'production', 'red_days' => 13, 'times_red' => 1, 'median_recovery_days' => 20, 'red_now' => true],
+                ['id' => $api->id, 'name' => 'api', 'environment' => 'production', 'red_days' => 6, 'times_red' => 2, 'median_recovery_days' => 2, 'red_now' => false],
+                ['id' => $legacy->id, 'name' => 'legacy', 'environment' => 'staging', 'red_days' => 5, 'times_red' => 1, 'median_recovery_days' => null, 'red_now' => true],
+            ])
+            ->where('redTime.environment', [
+                ['label' => 'production', 'services' => 2, 'red_days' => 19, 'times_red' => 3],
+                ['label' => 'staging', 'services' => 1, 'red_days' => 5, 'times_red' => 1],
+            ]));
+});

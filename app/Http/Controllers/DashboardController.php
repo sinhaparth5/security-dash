@@ -47,6 +47,7 @@ class DashboardController extends Controller
             'pipeline' => fn () => self::pipeline(),
             'history' => fn () => self::history(),
             'fixTimes' => fn () => self::fixTimes(),
+            'redTime' => fn () => self::redTime(),
         ]);
     }
 
@@ -139,6 +140,62 @@ class DashboardController extends Controller
             'severity' => array_values($fixes->groupBy('severity')->map(fn (Collection $group) => $summarise($group, 'severity'))
                 ->sortBy(fn (array $row) => array_search($row['label'], $order, true))->all()),
             'environment' => array_values($fixes->groupBy('environment')->map(fn (Collection $group) => $summarise($group, 'environment'))->sortKeys()->all()),
+        ];
+    }
+
+    /**
+     * How long services sat Red over the last 90 days, replayed from status_changes: days Red, how often they
+     * turned Red, and the median time back out. The ten slowest services, plus totals per environment.
+     *
+     * @return array{window_days: int, services: list<array<string, mixed>>, environment: list<array<string, mixed>>}
+     */
+    public static function redTime(): array
+    {
+        $window = 90;
+        $start = now()->subDays($window);
+        // ponytail: reads every status change, like history(); bound both with daily snapshots (#24).
+        $changes = StatusChange::query()->orderBy('created_at')->orderBy('id')->get(['service_id', 'status', 'created_at'])->groupBy('service_id');
+
+        $services = Service::query()->orderBy('name')->get(['id', 'name', 'environment', 'status', 'created_at'])->map(function (Service $service) use ($changes, $start) {
+            $timeline = collect($changes->get($service->id, []))->map(fn (StatusChange $change) => [$change->status, $change->created_at])->all();
+
+            // Graded before status history existed: its current status, from registration.
+            if ($timeline === [] && $service->created_at !== null) {
+                $timeline = [[$service->status, $service->created_at]];
+            }
+
+            $spells = [];
+
+            foreach ($timeline as $i => [$status, $from]) {
+                $until = $timeline[$i + 1][1] ?? null;
+
+                if ($status === ServiceStatus::Red && ($until === null || $until->gt($start))) {
+                    $spells[] = [$from, $until];
+                }
+            }
+
+            $recoveries = collect($spells)->filter(fn (array $spell) => $spell[1] !== null)->map(fn (array $spell) => $spell[0]->diffInSeconds($spell[1]) / 86400);
+
+            return [
+                'id' => $service->id,
+                'name' => $service->name,
+                'environment' => $service->environment,
+                'red_days' => round(collect($spells)->sum(fn (array $spell) => $start->max($spell[0])->diffInSeconds($spell[1] ?? now()) / 86400), 1),
+                'times_red' => collect($spells)->filter(fn (array $spell) => $spell[0]->gte($start))->count(),
+                'median_recovery_days' => $recoveries->isEmpty() ? null : self::percentile($recoveries, 0.5),
+                'red_now' => $spells !== [] && end($spells)[1] === null,
+            ];
+        })->filter(fn (array $service) => $service['red_days'] > 0);
+
+        return [
+            'window_days' => $window,
+            'services' => array_values($services->sortByDesc('red_days')->take(10)->all()),
+            'environment' => array_values($services->groupBy('environment')->map(fn (Collection $group, string $environment) => [
+                'label' => $environment,
+                'services' => $group->count(),
+                'red_days' => round($group->sum('red_days'), 1),
+                'times_red' => $group->sum('times_red'),
+            ])->sortKeys()->all()),
         ];
     }
 

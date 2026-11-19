@@ -67,6 +67,26 @@ export type FixTimes = {
     environment: FixTimeRow[];
 };
 
+/** How long services sat Red over the window: the ten slowest, and totals per environment. */
+export type RedTime = {
+    window_days: number;
+    services: {
+        id: number;
+        name: string;
+        environment: string;
+        red_days: number;
+        times_red: number;
+        median_recovery_days: number | null;
+        red_now: boolean;
+    }[];
+    environment: {
+        label: string;
+        services: number;
+        red_days: number;
+        times_red: number;
+    }[];
+};
+
 /** Services per status at the end of each of the last 30 days, plus this month's changes. */
 export type StatusHistory = {
     trend: ({ date: string } & Record<Status, number>)[];

@@ -33,6 +33,7 @@ import Panel from '@/components/Panel.vue';
 import FixTimesTable from '@/components/FixTimesTable.vue';
 import FleetRadar from '@/components/FleetRadar.vue';
 import type { RadarBlip } from '@/components/FleetRadar.vue';
+import RedTimeList from '@/components/RedTimeList.vue';
 import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +56,7 @@ import type {
     FixTimes,
     MonitoredService,
     Pipeline,
+    RedTime,
     Status,
     StatusHistory,
 } from '@/types';
@@ -75,6 +77,7 @@ const props = defineProps<{
     pipeline: Pipeline;
     history: StatusHistory;
     fixTimes: FixTimes;
+    redTime: RedTime;
 }>();
 
 const radarBlips = computed<RadarBlip[]>(() =>
@@ -538,6 +541,10 @@ function dependencyBreakdown(service: MonitoredService) {
 
                 <Panel title="fix times" :icon="Timer">
                     <FixTimesTable :fix-times="fixTimes" />
+                </Panel>
+
+                <Panel title="time in red" :icon="Hourglass">
+                    <RedTimeList :red-time="redTime" />
                 </Panel>
             </div>
 
