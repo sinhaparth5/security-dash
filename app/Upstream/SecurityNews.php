@@ -22,12 +22,14 @@ class SecurityNews
         'SecurityWeek' => 'https://www.securityweek.com/feed/',
         'Krebs on Security' => 'https://krebsonsecurity.com/feed/',
         'Dark Reading' => 'https://www.darkreading.com/rss.xml',
+        // Alerts only: the advisories feed is mostly ICS bulletins. Carries the "CISA adds … to the KEV catalog" notices.
+        'CISA' => 'https://www.cisa.gov/cybersecurity-advisories/alerts.xml',
     ];
 
     /**
      * The latest articles from every feed. A feed that is down or malformed is skipped, not fatal.
      *
-     * @return list<array{url: string, source: string, title: string, summary: string|null, image_url: string|null, published_at: CarbonInterface}>
+     * @return list<array{url: string, source: string, title: string, summary: string|null, image_url: string|null, published_at: CarbonInterface, advisory_ids: list<string>}>
      */
     public function latest(): array
     {
@@ -45,7 +47,7 @@ class SecurityNews
     }
 
     /**
-     * @return list<array{url: string, source: string, title: string, summary: string|null, image_url: string|null, published_at: CarbonInterface}>
+     * @return list<array{url: string, source: string, title: string, summary: string|null, image_url: string|null, published_at: CarbonInterface, advisory_ids: list<string>}>
      */
     public static function parse(string $source, string $xml): array
     {
@@ -73,7 +75,8 @@ class SecurityNews
             // Feeds carry their own offsets, and timestamps are stored without one, so convert first.
             $published = rescue(fn () => Date::parse((string) $item->pubDate)->setTimezone(config('app.timezone')), null, report: false);
             // WordPress feeds append "The post … appeared first on …" to every description.
-            $summary = self::text((string) preg_replace('/<p>The post .*$/s', '', (string) $item->description));
+            $description = (string) $item->description;
+            $summary = self::text((string) preg_replace('/<p>The post .*$/s', '', $description));
 
             $articles[] = [
                 'url' => $url,
@@ -82,10 +85,25 @@ class SecurityNews
                 'summary' => $summary === '' ? null : Str::limit($summary, 280),
                 'image_url' => self::image($item, $content.(string) $item->description),
                 'published_at' => $published ?? now(),
+                // Read before the summary is cut, so ids further down the article still count.
+                'advisory_ids' => self::advisoryIds($title.' '.$description.' '.$content),
             ];
         }
 
         return $articles;
+    }
+
+    /**
+     * The CVE and GHSA ids a text mentions, uppercased like OSV writes them.
+     *
+     * @return list<string>
+     */
+    public static function advisoryIds(string $text): array
+    {
+        preg_match_all('/\b(?:CVE-\d{4}-\d{4,7}|GHSA(?:-[23456789cfghjmpqrvwx]{4}){3})\b/i', $text, $matches);
+
+        // ponytail: 50 ids per article; a roundup listing more is a catalog, not news about one fix.
+        return array_slice(array_values(array_unique(array_map(strtoupper(...), $matches[0]))), 0, 50);
     }
 
     /**

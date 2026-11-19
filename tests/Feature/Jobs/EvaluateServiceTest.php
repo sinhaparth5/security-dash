@@ -2,6 +2,7 @@
 
 use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
+use App\Jobs\EnrichService;
 use App\Jobs\EvaluateService;
 use App\Models\Advisory;
 use App\Models\Dependency;
@@ -472,15 +473,18 @@ test('a fixable Go advisory turns red only when the symbol scan finds its vulner
     'only other code of the module is linked' => [['golang.org/x/net/http2.Framer.WriteData', 'golang.org/x/net/idna.ToASCII'], ServiceStatus::Yellow, false],
 ]);
 
-test('the red alert goes out before the best-effort steps, so one that dies cannot swallow it', function () {
+test('grading alerts and hands the best-effort steps to their own job, so a slow upstream there cannot time it out', function () {
     Notification::fake();
+    Queue::fake([EnrichService::class]);
     $user = User::factory()->create();
     $dependency = Dependency::factory()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
     $dependency->service->update(['status' => ServiceStatus::Green, 'repository' => 'acme/billing']);
     fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
-    $this->mock(GitHub::class, fn ($github) => $github->shouldReceive('enabled')->andThrow(new RuntimeException('GitHub is down')));
+    $this->mock(GitHub::class, fn ($github) => $github->shouldReceive('enabled')->never());
 
-    expect(fn () => EvaluateService::dispatchSync($dependency->service))->toThrow(RuntimeException::class, 'GitHub is down');
+    EvaluateService::dispatchSync($dependency->service);
 
+    expect($dependency->service->fresh()->status)->toBe(ServiceStatus::Red);
     Notification::assertSentTo($user, ServiceTurnedRed::class);
+    Queue::assertPushed(EnrichService::class, fn (EnrichService $job) => $job->service->is($dependency->service));
 });

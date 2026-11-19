@@ -202,6 +202,12 @@ export type NewsArticle = {
     /** Jev: 0 background, 1 worth knowing, 2 important, 3 act now. */
     importance: number | null;
     importance_confidence: number | null;
+    /** CVE and GHSA ids the article mentions. */
+    advisory_ids: string[];
+    /** Services carrying one of those advisories. */
+    affects: { id: number; name: string; environment: string }[];
+    /** One of those CVEs is in CISA's Known Exploited Vulnerabilities catalog. */
+    exploited: boolean;
 };
 
 export type WatchableRepository = {

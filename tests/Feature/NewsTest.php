@@ -2,9 +2,12 @@
 
 use App\Enums\Ecosystem;
 use App\Jobs\FetchSecurityNews;
+use App\Models\Advisory;
 use App\Models\Dependency;
 use App\Models\NewsArticle;
+use App\Models\Service;
 use App\Models\User;
+use App\Upstream\Exploitability;
 use App\Upstream\SecurityNews;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
@@ -86,6 +89,7 @@ test('the hourly job stores new articles once, ranks them with jev for the fleet
         'www.securityweek.com/*' => Http::response('', 503),
         'krebsonsecurity.com/*' => Http::response('nonsense'),
         'www.darkreading.com/*' => Http::response(rssFeed('')),
+        'www.cisa.gov/*' => Http::response(rssFeed('')),
         'api.typesafe.ai/*' => Http::response(['answers' => ['importance_0' => ['score' => 2.71, 'confidence' => 0.9]]]),
     ]);
 
@@ -160,4 +164,45 @@ test('the first visit fetches news instead of waiting for the next hourly run', 
     Cache::forever(FetchSecurityNews::CHECKED_AT, now()->toIso8601String());
     $this->actingAs($user)->get(route('news.index'))->assertOk();
     Queue::assertPushed(FetchSecurityNews::class, 1);
+});
+
+test('advisory ids are read from the whole article, not just the cut summary', function () {
+    $padding = str_repeat('Background on the bug. ', 40);
+    $xml = rssFeed(<<<XML
+        <item>
+          <title>Lodash patched (cve-2020-28500)</title>
+          <link>https://example.com/lodash</link>
+          <description><![CDATA[<p>{$padding} Also GHSA-29mw-wpgm-hmr9 and CVE-2020-28500 again. Not an id: CVE-20-1.</p>]]></description>
+        </item>
+        XML);
+
+    $article = SecurityNews::parse('x', $xml)[0];
+
+    expect($article['advisory_ids'])->toBe(['CVE-2020-28500', 'GHSA-29MW-WPGM-HMR9'])
+        ->and($article['summary'])->not->toContain('GHSA');
+});
+
+test('articles naming an advisory a service carries come first, with the services and whether it is exploited', function () {
+    $billing = Service::factory()->create(['name' => 'billing']);
+    $dependency = Dependency::factory()->for($billing)->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash']);
+    Advisory::factory()->for($dependency)->create(['osv_id' => 'GHSA-29MW-WPGM-HMR9', 'aliases' => ['CVE-2020-28500']]);
+    Cache::put(Exploitability::KEV_CACHE, ['CVE-2020-28500' => true]);
+    $article = fn (string $title, array $ids, ?float $importance) => NewsArticle::create([
+        'url_hash' => sha1($title), 'url' => "https://example.com/{$title}", 'source' => 'x', 'title' => $title,
+        'importance' => $importance, 'published_at' => now()->subHour(), 'advisory_ids' => $ids,
+    ]);
+    $article('lodash', ['CVE-2020-28500'], 0.2);
+    $article('elsewhere', ['CVE-2099-0001'], 2.9);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('news.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('fleet', 1)
+            ->where('fleet.0.title', 'lodash')
+            ->where('fleet.0.affects', [['id' => $billing->id, 'name' => 'billing', 'environment' => $billing->environment]])
+            ->where('fleet.0.exploited', true)
+            ->where('featured.0.title', 'elsewhere')
+            ->where('featured.0.exploited', false)
+            ->where('featured.0.affects', [])
+        );
 });

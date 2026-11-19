@@ -19,10 +19,11 @@ use Illuminate\Support\Carbon;
  * @property Carbon $published_at
  * @property float|null $importance 0 (background) to 3 (act now), from Jev
  * @property float|null $importance_confidence
+ * @property list<string>|null $advisory_ids CVE and GHSA ids the article mentions
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['url_hash', 'url', 'source', 'title', 'summary', 'image_url', 'published_at', 'importance', 'importance_confidence'])]
+#[Fillable(['url_hash', 'url', 'source', 'title', 'summary', 'image_url', 'published_at', 'importance', 'importance_confidence', 'advisory_ids'])]
 class NewsArticle extends Model
 {
     /**
@@ -36,6 +37,7 @@ class NewsArticle extends Model
             'published_at' => 'datetime',
             'importance' => 'float',
             'importance_confidence' => 'float',
+            'advisory_ids' => 'array',
         ];
     }
 }

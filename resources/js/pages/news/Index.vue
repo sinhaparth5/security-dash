@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Head, usePoll } from '@inertiajs/vue3';
-import { Newspaper, Sparkles } from '@lucide/vue';
-import { computed, reactive } from 'vue';
+import { Newspaper, Search, Server } from '@lucide/vue';
+import { computed, reactive, ref } from 'vue';
 import NewsWire from '@/components/ascii/NewsWire.vue';
+import NewsMeta from '@/components/NewsMeta.vue';
+import { Input } from '@/components/ui/input';
 import { lastSeen } from '@/lib/format';
 import { index as newsIndex } from '@/routes/news';
 import type { NewsArticle } from '@/types';
@@ -14,9 +16,11 @@ defineOptions({
 });
 
 const props = defineProps<{
+    fleet: NewsArticle[];
     featured: NewsArticle[];
     important: NewsArticle[];
     latest: NewsArticle[];
+    sources: string[];
     ranked: boolean;
     checkedAt: string | null;
 }>();
@@ -24,47 +28,57 @@ const props = defineProps<{
 // Feeds refresh hourly; checking every five minutes picks up a new run soon after it lands.
 usePoll(300_000);
 
-// Publisher images break now and then; fall back to the placeholder instead of a broken icon.
 const articles = computed(() => [
     ...new Map(
-        [...props.featured, ...props.important, ...props.latest].map(
-            (article) => [article.id, article],
-        ),
+        [
+            ...props.fleet,
+            ...props.featured,
+            ...props.important,
+            ...props.latest,
+        ].map((article) => [article.id, article]),
     ).values(),
 ]);
 
+const query = ref('');
+const source = ref<string | null>(null);
+
+// Search covers the headline, the summary and the advisory ids, so pasting a CVE finds the stories about it.
+function matches(article: NewsArticle): boolean {
+    const needle = query.value.trim().toLowerCase();
+
+    return (
+        (source.value === null || article.source === source.value) &&
+        (needle === '' ||
+            [article.title, article.summary ?? '', ...article.advisory_ids]
+                .join(' ')
+                .toLowerCase()
+                .includes(needle))
+    );
+}
+
+const shown = computed(() => ({
+    fleet: props.fleet.filter(matches),
+    featured: props.featured.filter(matches),
+    important: props.important.filter(matches),
+    latest: props.latest.filter(matches),
+}));
+
+const filtering = computed(
+    () => query.value.trim() !== '' || source.value !== null,
+);
+const nothingShown = computed(() =>
+    Object.values(shown.value).every((list) => list.length === 0),
+);
+
+// Publisher images break now and then; fall back to the placeholder instead of a broken icon.
 const brokenImages = reactive(new Set<number>());
 
 function hasImage(article: NewsArticle): boolean {
     return article.image_url !== null && !brokenImages.has(article.id);
 }
 
-function rank(
-    article: NewsArticle,
-): { label: string; class: string; title: string } | null {
-    if (article.importance === null) {
-        return null;
-    }
-
-    const confidence = Math.round((article.importance_confidence ?? 0) * 100);
-    const title = `Ranked by Jev for the software your services run (confidence ${confidence}%). A suggestion, not a grade.`;
-
-    if (article.importance >= 2.5) {
-        return {
-            label: 'Act now',
-            class: 'bg-status-critical text-status-critical-foreground',
-            title,
-        };
-    }
-
-    return article.importance >= 1.5
-        ? {
-              label: 'Important',
-              class: 'bg-status-warning text-status-warning-foreground',
-              title,
-          }
-        : null;
-}
+const card =
+    'group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-card transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40';
 </script>
 
 <template>
@@ -76,11 +90,12 @@ function rank(
                 Security news
             </h1>
             <p class="max-w-3xl text-sm text-muted-foreground">
-                From The Hacker News, BleepingComputer, SecurityWeek, Krebs on
-                Security and Dark Reading, refreshed every hour.
+                From {{ sources.join(', ') }}, refreshed every hour. Articles
+                naming a CVE or GHSA one of your services carries are pinned
+                first.
                 <template v-if="ranked">
-                    Jev ranks each article by how much it matters for the
-                    software your services run.
+                    Jev ranks the rest by how much they matter for the software
+                    your services run.
                 </template>
                 <template v-if="checkedAt">
                     Last checked {{ lastSeen(checkedAt).toLowerCase() }}.
@@ -91,7 +106,7 @@ function rank(
         <NewsWire v-if="articles.length > 0" :articles="articles" />
 
         <section
-            v-if="!featured.length && !important.length && !latest.length"
+            v-if="articles.length === 0"
             class="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center"
         >
             <Newspaper
@@ -105,8 +120,107 @@ function rank(
             </p>
         </section>
 
+        <div
+            v-else
+            class="flex flex-col gap-3 sm:flex-row sm:items-center"
+            role="search"
+        >
+            <label class="relative sm:w-80">
+                <span class="sr-only">Search news</span>
+                <Search
+                    class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                />
+                <Input
+                    v-model="query"
+                    type="search"
+                    placeholder="Search headlines or a CVE…"
+                    class="pl-8"
+                />
+            </label>
+            <div
+                class="flex flex-wrap gap-1.5"
+                role="group"
+                aria-label="Filter by source"
+            >
+                <button
+                    v-for="name in [null, ...sources]"
+                    :key="name ?? 'all'"
+                    type="button"
+                    class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent"
+                    :class="
+                        source === name
+                            ? 'border-foreground bg-foreground text-background hover:bg-foreground/90'
+                            : 'text-muted-foreground'
+                    "
+                    :aria-pressed="source === name"
+                    @click="source = name"
+                >
+                    {{ name ?? 'All sources' }}
+                </button>
+            </div>
+        </div>
+
+        <p
+            v-if="articles.length > 0 && filtering && nothingShown"
+            class="text-sm text-muted-foreground"
+        >
+            Nothing matches. Clear the search or pick another source.
+        </p>
+
         <section
-            v-if="featured.length"
+            v-if="shown.fleet.length"
+            aria-labelledby="fleet-heading"
+            class="flex flex-col gap-3"
+        >
+            <div class="flex flex-col gap-0.5">
+                <h2
+                    id="fleet-heading"
+                    class="flex items-center gap-2 text-lg font-semibold"
+                >
+                    <Server
+                        class="size-4 text-status-critical"
+                        aria-hidden="true"
+                    />
+                    In your services
+                </h2>
+                <p class="text-sm text-muted-foreground">
+                    These name an advisory a service of yours carries right now.
+                </p>
+            </div>
+            <ul
+                class="divide-y overflow-hidden rounded-lg border border-status-critical/40 bg-card shadow-card"
+            >
+                <li
+                    v-for="article in shown.fleet"
+                    :key="article.id"
+                    class="relative flex flex-col gap-1.5 p-4 transition-colors focus-within:bg-accent/50 hover:bg-accent/50"
+                >
+                    <NewsMeta :article="article" ids />
+                    <h3 class="leading-snug font-semibold">
+                        <a
+                            :href="article.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="after:absolute after:inset-0 focus-visible:outline-none"
+                            >{{ article.title
+                            }}<span class="sr-only">
+                                (opens in a new tab)</span
+                            ></a
+                        >
+                    </h3>
+                    <p
+                        v-if="article.summary"
+                        class="line-clamp-2 text-sm text-muted-foreground"
+                    >
+                        {{ article.summary }}
+                    </p>
+                </li>
+            </ul>
+        </section>
+
+        <section
+            v-if="shown.featured.length"
             aria-labelledby="featured-heading"
             class="flex flex-col gap-3"
         >
@@ -115,10 +229,12 @@ function rank(
             </h2>
             <div class="grid gap-4 lg:grid-cols-3 lg:grid-rows-2">
                 <article
-                    v-for="(article, index) in featured"
+                    v-for="(article, index) in shown.featured"
                     :key="article.id"
-                    class="group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-card transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
-                    :class="{ 'lg:col-span-2 lg:row-span-2': index === 0 }"
+                    :class="[
+                        card,
+                        { 'lg:col-span-2 lg:row-span-2': index === 0 },
+                    ]"
                 >
                     <div
                         class="relative overflow-hidden bg-muted"
@@ -144,25 +260,7 @@ function rank(
                         </div>
                     </div>
                     <div class="flex flex-1 flex-col gap-2 p-4">
-                        <div
-                            class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
-                        >
-                            <span
-                                v-if="rank(article)"
-                                class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium"
-                                :class="rank(article)!.class"
-                                :title="rank(article)!.title"
-                            >
-                                <Sparkles class="size-3" aria-hidden="true" />
-                                {{ rank(article)!.label }}
-                            </span>
-                            <span class="font-medium text-foreground">{{
-                                article.source
-                            }}</span>
-                            <time :datetime="article.published_at">{{
-                                lastSeen(article.published_at)
-                            }}</time>
-                        </div>
+                        <NewsMeta :article="article" :ids="index === 0" />
                         <h3
                             class="font-semibold text-balance"
                             :class="
@@ -197,7 +295,7 @@ function rank(
         </section>
 
         <section
-            v-if="important.length"
+            v-if="shown.important.length"
             aria-labelledby="important-heading"
             class="flex flex-col gap-3"
         >
@@ -206,9 +304,9 @@ function rank(
             </h2>
             <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <article
-                    v-for="article in important"
+                    v-for="article in shown.important"
                     :key="article.id"
-                    class="group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-card transition-[border-color] duration-200 focus-within:ring-[3px] focus-within:ring-ring/50 hover:border-ring/40"
+                    :class="card"
                 >
                     <div class="aspect-[16/9] overflow-hidden bg-muted">
                         <img
@@ -231,25 +329,7 @@ function rank(
                         </div>
                     </div>
                     <div class="flex flex-1 flex-col gap-2 p-4">
-                        <div
-                            class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
-                        >
-                            <span
-                                v-if="rank(article)"
-                                class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium"
-                                :class="rank(article)!.class"
-                                :title="rank(article)!.title"
-                            >
-                                <Sparkles class="size-3" aria-hidden="true" />
-                                {{ rank(article)!.label }}
-                            </span>
-                            <span class="font-medium text-foreground">{{
-                                article.source
-                            }}</span>
-                            <time :datetime="article.published_at">{{
-                                lastSeen(article.published_at)
-                            }}</time>
-                        </div>
+                        <NewsMeta :article="article" />
                         <h3 class="leading-snug font-semibold text-balance">
                             <a
                                 :href="article.url"
@@ -274,20 +354,24 @@ function rank(
         </section>
 
         <section
-            v-if="latest.length"
+            v-if="shown.latest.length"
             aria-labelledby="latest-heading"
             class="flex flex-col gap-3"
         >
             <h2 id="latest-heading" class="text-lg font-semibold">
                 {{
-                    featured.length || important.length ? 'Latest' : 'All news'
+                    shown.fleet.length ||
+                    shown.featured.length ||
+                    shown.important.length
+                        ? 'Latest'
+                        : 'All news'
                 }}
             </h2>
             <ul
                 class="divide-y overflow-hidden rounded-lg border bg-card shadow-card"
             >
                 <li
-                    v-for="article in latest"
+                    v-for="article in shown.latest"
                     :key="article.id"
                     class="group relative flex gap-4 p-4 transition-colors focus-within:bg-accent/50 hover:bg-accent/50"
                 >
@@ -311,16 +395,7 @@ function rank(
                         </div>
                     </div>
                     <div class="flex min-w-0 flex-col gap-1">
-                        <div
-                            class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
-                        >
-                            <span class="font-medium text-foreground">{{
-                                article.source
-                            }}</span>
-                            <time :datetime="article.published_at">{{
-                                lastSeen(article.published_at)
-                            }}</time>
-                        </div>
+                        <NewsMeta :article="article" />
                         <h3 class="leading-snug font-medium">
                             <a
                                 :href="article.url"
