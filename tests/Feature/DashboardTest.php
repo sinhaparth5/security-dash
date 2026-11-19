@@ -5,6 +5,7 @@ use App\Models\Advisory;
 use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\Service;
+use App\Models\ServiceSnapshot;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -215,6 +216,34 @@ test('the dashboard ranks open advisories to fix first and says why', function (
             ->where('fixFirst.2.reasons', ['KEV', 'not reached', 'prod'])
             ->where('fixFirst.3.osv_id', 'GHSA-crit')
             ->where('fixFirst.3.score', 5));
+});
+
+test('a nightly snapshot records each service\'s drift, and the dashboard shows it against 30 days ago', function () {
+    $this->freezeTime();
+    $billing = Service::factory()->create(['name' => 'billing', 'status' => ServiceStatus::Yellow]);
+    $current = Service::factory()->create(['name' => 'current']);
+    Dependency::factory()->for($billing)->create(['name' => 'react', 'version' => '16.14.0', 'latest_version' => '19.1.0']);
+    Dependency::factory()->for($billing)->create(['name' => 'golang.org/x/net', 'version' => 'v0.3.0', 'latest_version' => 'v0.40.0']); // 0.x: outdated, 0 majors
+    Dependency::factory()->for($billing)->create(['name' => 'node', 'version' => '18.20.0', 'latest_version' => '18.20.0', 'eol_at' => now()->subMonth()]);
+    Dependency::factory()->for($billing)->create(['name' => 'private-lib', 'version' => '1.0.0', 'latest_version' => null]);
+    Dependency::factory()->for($current)->create(['name' => 'lodash', 'version' => '4.17.21', 'latest_version' => '4.17.21']);
+    ServiceSnapshot::create(['service_id' => $billing->id, 'date' => today()->subDays(20), 'status' => ServiceStatus::Green, 'dependencies' => 3, 'outdated' => 1, 'majors_behind' => 1, 'end_of_life' => 0]);
+    ServiceSnapshot::create(['service_id' => $billing->id, 'date' => today()->subDays(40), 'status' => ServiceStatus::Green, 'dependencies' => 3, 'outdated' => 0, 'majors_behind' => 0, 'end_of_life' => 0]);
+
+    ServiceSnapshot::take();
+    ServiceSnapshot::take(); // twice in a day keeps one row
+
+    expect(ServiceSnapshot::where('date', today()->toDateString())->count())->toBe(2);
+    expect(ServiceSnapshot::where('service_id', $billing->id)->where('date', today()->toDateString())->sole()->only(['status', 'dependencies', 'outdated', 'majors_behind', 'end_of_life']))
+        ->toBe(['status' => ServiceStatus::Yellow, 'dependencies' => 4, 'outdated' => 2, 'majors_behind' => 3, 'end_of_life' => 1]);
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('drift.since', today()->subDays(20)->toDateString())
+            ->where('drift.totals', ['outdated' => 2, 'majors_behind' => 3, 'end_of_life' => 1])
+            ->has('drift.services', 1)
+            ->where('drift.services.0.name', 'billing')
+            ->where('drift.services.0.majors_change', 2));
 });
 
 test('the dashboard reports how long each service sat red over 90 days, counting a service still red up to now', function () {

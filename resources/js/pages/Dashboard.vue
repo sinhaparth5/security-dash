@@ -11,6 +11,7 @@ import {
     CalendarDays,
     CalendarRange,
     Clock,
+    GitCompareArrows,
     Hourglass,
     ListOrdered,
     ListChecks,
@@ -31,6 +32,7 @@ import StatusCalendar from '@/components/charts/StatusCalendar.vue';
 import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
+import DriftList from '@/components/DriftList.vue';
 import FixFirstList from '@/components/FixFirstList.vue';
 import FixTimesTable from '@/components/FixTimesTable.vue';
 import FleetRadar from '@/components/FleetRadar.vue';
@@ -55,6 +57,7 @@ import { dashboard } from '@/routes';
 import type {
     Advisory,
     Dependency,
+    Drift,
     FixTimes,
     MonitoredService,
     Pipeline,
@@ -82,6 +85,7 @@ const props = defineProps<{
     fixTimes: FixTimes;
     redTime: RedTime;
     fixFirst: FixFirstItem[];
+    drift: Drift;
 }>();
 
 const radarBlips = computed<RadarBlip[]>(() =>
@@ -553,6 +557,10 @@ function dependencyBreakdown(service: MonitoredService) {
 
                 <Panel title="time in red" :icon="Hourglass">
                     <RedTimeList :red-time="redTime" />
+                </Panel>
+
+                <Panel title="drift" :icon="GitCompareArrows">
+                    <DriftList :drift="drift" />
                 </Panel>
             </div>
 

@@ -279,3 +279,19 @@ export type FleetUpgrade = {
     weight: number;
     services: { id: number; name: string; environment: string; from: string }[];
 };
+
+/** How far dependencies lag their latest release, and the change since the oldest snapshot in 30 days. */
+export type Drift = {
+    since: string | null;
+    totals: { outdated: number; majors_behind: number; end_of_life: number };
+    services: {
+        id: number;
+        name: string;
+        environment: string;
+        dependencies: number;
+        outdated: number;
+        majors_behind: number;
+        end_of_life: number;
+        majors_change: number | null;
+    }[];
+};

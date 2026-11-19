@@ -3,6 +3,7 @@
 use App\Jobs\EvaluateService;
 use App\Jobs\FetchSecurityNews;
 use App\Models\Service;
+use App\Models\ServiceSnapshot;
 use App\Models\User;
 use App\Notifications\WeeklyDigest;
 use Illuminate\Foundation\Inspiring;
@@ -25,5 +26,9 @@ Schedule::job(new FetchSecurityNews)
 Schedule::call(fn () => Notification::send(User::all(), new WeeklyDigest))
     ->name('weekly-digest')
     ->weeklyOn(1, '8:00');
+
+Schedule::call(fn () => ServiceSnapshot::take())
+    ->name('service-snapshots')
+    ->dailyAt('23:55');
 
 Schedule::command('sanctum:prune-expired --hours=24')->daily();

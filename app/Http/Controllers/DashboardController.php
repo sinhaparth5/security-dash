@@ -10,6 +10,7 @@ use App\Models\Dependency;
 use App\Models\DependencyGraph;
 use App\Models\RiskAcceptance;
 use App\Models\Service;
+use App\Models\ServiceSnapshot;
 use App\Models\StatusChange;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -50,6 +51,7 @@ class DashboardController extends Controller
             'fixTimes' => fn () => self::fixTimes(),
             'redTime' => fn () => self::redTime(),
             'fixFirst' => fn () => self::fixFirst(),
+            'drift' => fn () => self::drift(),
         ]);
     }
 
@@ -290,6 +292,33 @@ class DashboardController extends Controller
                 ];
             })
             ->sortByDesc('score')->take($limit)->all());
+    }
+
+    /**
+     * How far each service's dependencies lag their latest release: now, and the change in majors behind since the
+     * oldest snapshot in the last 30 days. The ten furthest behind, plus fleet totals. An early warning, never a grade.
+     *
+     * @return array{since: string|null, totals: array{outdated: int, majors_behind: int, end_of_life: int}, services: list<array<string, mixed>>}
+     */
+    public static function drift(): array
+    {
+        $since = ServiceSnapshot::where('date', '>=', today()->subDays(30)->toDateString())->min('date');
+        $then = $since === null ? collect() : ServiceSnapshot::where('date', $since)->pluck('majors_behind', 'service_id');
+
+        $services = Service::with('dependencies:id,service_id,version,latest_version,eol_at')->orderBy('name')->get(['id', 'name', 'environment'])
+            ->map(function (Service $service) use ($then) {
+                $drift = ServiceSnapshot::drift($service);
+
+                return ['id' => $service->id, 'name' => $service->name, 'environment' => $service->environment] + $drift
+                    + ['majors_change' => $then->has($service->id) ? $drift['majors_behind'] - (int) $then[$service->id] : null];
+            });
+
+        return [
+            'since' => $since === null ? null : Carbon::parse($since)->toDateString(),
+            'totals' => ['outdated' => (int) $services->sum('outdated'), 'majors_behind' => (int) $services->sum('majors_behind'), 'end_of_life' => (int) $services->sum('end_of_life')],
+            'services' => array_values($services->filter(fn (array $service) => $service['outdated'] > 0 || $service['end_of_life'] > 0)
+                ->sortByDesc(fn (array $service) => [$service['end_of_life'], $service['majors_behind'], $service['outdated']])->take(10)->all()),
+        ];
     }
 
     /**
