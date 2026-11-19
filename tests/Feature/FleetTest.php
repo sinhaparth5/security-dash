@@ -67,6 +67,35 @@ test('the service page only exposes the badge url once one is created', function
         ->assertInertia(fn (Assert $page) => $page->where('badgeUrl', route('badge.show', 'abc123')));
 });
 
+test('the packages page lists the upgrades that clear the most advisories across services', function () {
+    $billing = Service::factory()->create(['name' => 'billing']);
+    $auth = Service::factory()->create(['name' => 'auth']);
+    $lodash = fn (Service $service, string $version) => Dependency::factory()->for($service)->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => $version]);
+    $billingLodash = $lodash($billing, '4.17.15');
+    $authLodash = $lodash($auth, '4.17.20');
+    Advisory::factory()->for($billingLodash)->create(['osv_id' => 'GHSA-a', 'severity' => 'HIGH', 'fixed_version' => '4.17.19']);
+    Advisory::factory()->for($billingLodash)->create(['osv_id' => 'GHSA-b', 'severity' => 'MODERATE', 'fixed_version' => '4.17.21']);
+    Advisory::factory()->for($authLodash)->create(['osv_id' => 'GHSA-b', 'severity' => 'MODERATE', 'fixed_version' => '4.17.21']);
+    Advisory::factory()->for($authLodash)->create(['osv_id' => 'GHSA-accepted', 'severity' => 'CRITICAL', 'fixed_version' => '4.17.30']);
+    $auth->riskAcceptances()->create(['osv_id' => 'GHSA-accepted', 'reason' => 'Not exposed.']);
+    $express = Dependency::factory()->for($billing)->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'express', 'version' => '4.0.0']);
+    Advisory::factory()->for($express)->create(['osv_id' => 'GHSA-c', 'severity' => 'CRITICAL', 'fixed_version' => '4.19.2']);
+    Advisory::factory()->for($express)->create(['osv_id' => 'GHSA-nofix', 'severity' => 'CRITICAL', 'fixed_version' => null]);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('packages.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('upgrades', [
+                ['ecosystem' => 'npm', 'package' => 'lodash', 'to' => '4.17.21', 'advisories' => 2, 'weight' => 7, 'services' => [
+                    ['id' => $auth->id, 'name' => 'auth', 'environment' => $auth->environment, 'from' => '4.17.20'],
+                    ['id' => $billing->id, 'name' => 'billing', 'environment' => $billing->environment, 'from' => '4.17.15'],
+                ]],
+                ['ecosystem' => 'npm', 'package' => 'express', 'to' => '4.19.2', 'advisories' => 1, 'weight' => 4, 'services' => [
+                    ['id' => $billing->id, 'name' => 'billing', 'environment' => $billing->environment, 'from' => '4.0.0'],
+                ]],
+            ]));
+});
+
 test('opting into automatic prs is saved with the repository and audited', function () {
     $service = Service::factory()->create();
 

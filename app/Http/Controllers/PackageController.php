@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ServiceStatus;
+use App\Models\Advisory;
 use App\Models\Dependency;
+use App\Models\RiskAcceptance;
+use App\Upstream\Releases;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Inertia\Inertia;
@@ -37,7 +40,41 @@ class PackageController extends Controller
         return Inertia::render('packages/Index', [
             'search' => $search,
             'packages' => $packages->map(fn (Dependency $package) => $this->present($rows[$package->ecosystem->value.'|'.$package->name] ?? collect()))->values(),
+            'upgrades' => fn () => self::upgrades(),
         ]);
+    }
+
+    /**
+     * The package upgrades that clear the most across the fleet: open fixable advisories grouped by package, the
+     * target being the highest fixed version any of them needs, weighted by severity per service. Accepted risks
+     * are left out.
+     *
+     * @return list<array{ecosystem: string, package: string, to: string, advisories: int, weight: int, services: list<array{id: int, name: string, environment: string, from: string}>}>
+     */
+    public static function upgrades(int $limit = 10): array
+    {
+        $accepted = RiskAcceptance::active()->get(['service_id', 'osv_id'])->map(fn (RiskAcceptance $acceptance) => $acceptance->service_id.':'.$acceptance->osv_id)->flip();
+        $weight = fn (?string $severity) => ['CRITICAL' => 4, 'HIGH' => 3, 'LOW' => 1][strtoupper((string) $severity)] ?? 2;
+
+        // ponytail: direct upgrades only; a transitive npm package may need its parent bumped (the service's fix_plan says which).
+        return array_values(Advisory::with('dependency.service:id,name,environment')->whereNotNull('fixed_version')->get()
+            ->reject(fn (Advisory $advisory) => $advisory->dependency->service === null
+                || $accepted->has($advisory->dependency->service_id.':'.$advisory->osv_id))
+            ->groupBy(fn (Advisory $advisory) => $advisory->dependency->ecosystem->value."\0".$advisory->dependency->name)
+            ->map(fn (Collection $advisories) => [
+                'ecosystem' => $advisories->first()->dependency->ecosystem->value,
+                'package' => $advisories->first()->dependency->name,
+                'to' => (string) $advisories->pluck('fixed_version')->sort(fn (string $a, string $b) => version_compare(Releases::normalize($b), Releases::normalize($a)))->first(),
+                'advisories' => $advisories->pluck('osv_id')->unique()->count(),
+                'weight' => $advisories->sum(fn (Advisory $advisory) => $weight($advisory->severity)),
+                'services' => array_values($advisories->unique('dependency_id')->sortBy('dependency.service.name')->map(fn (Advisory $advisory) => [
+                    'id' => $advisory->dependency->service->id,
+                    'name' => $advisory->dependency->service->name,
+                    'environment' => $advisory->dependency->service->environment,
+                    'from' => $advisory->dependency->version,
+                ])->all()),
+            ])
+            ->sortByDesc('weight')->take($limit)->all());
     }
 
     /**

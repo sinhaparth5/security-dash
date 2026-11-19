@@ -269,3 +269,13 @@ export type FixFirstItem = {
     score: number;
     reasons: string[];
 };
+
+/** A package upgrade and how much it clears across the fleet. */
+export type FleetUpgrade = {
+    ecosystem: string;
+    package: string;
+    to: string;
+    advisories: number;
+    weight: number;
+    services: { id: number; name: string; environment: string; from: string }[];
+};

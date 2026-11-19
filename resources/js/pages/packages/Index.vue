@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { packageUrl, plural } from '@/lib/format';
 import { statusMeta } from '@/lib/status';
 import { index as packagesIndex } from '@/routes/packages';
-import type { FleetPackage } from '@/types';
+import type { FleetPackage, FleetUpgrade } from '@/types';
 
 defineOptions({
     layout: {
@@ -21,6 +21,7 @@ defineOptions({
 defineProps<{
     search: string;
     packages: FleetPackage[];
+    upgrades: FleetUpgrade[];
 }>();
 </script>
 
@@ -40,6 +41,54 @@ defineProps<{
         </header>
 
         <BlastRadius v-if="packages.length > 0" :packages="packages" />
+
+        <section
+            v-if="upgrades.length > 0"
+            class="rounded-lg border bg-card p-4 shadow-card"
+            aria-labelledby="upgrades-heading"
+        >
+            <h2 id="upgrades-heading" class="font-medium lowercase">
+                Upgrades that clear the most
+            </h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+                Open fixable advisories by package, weighted by severity in each
+                service. Accepted risks are left out.
+            </p>
+            <ol class="mt-3 space-y-2">
+                <li
+                    v-for="upgrade in upgrades"
+                    :key="`${upgrade.ecosystem}|${upgrade.package}`"
+                    class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm"
+                >
+                    <span class="font-mono font-medium break-all"
+                        >{{ upgrade.package }} → {{ upgrade.to }}</span
+                    >
+                    <span class="font-mono text-xs text-muted-foreground"
+                        >{{ upgrade.ecosystem }} ·
+                        {{
+                            plural(upgrade.advisories, 'advisory', 'advisories')
+                        }}</span
+                    >
+                    <span class="flex flex-wrap gap-1.5">
+                        <Link
+                            v-for="service in upgrade.services"
+                            :key="service.id"
+                            :href="ServiceController.show(service.id)"
+                            class="rounded-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                        >
+                            <Badge
+                                variant="outline"
+                                class="font-normal hover:bg-accent"
+                                >{{ service.name }}
+                                <span class="font-mono text-muted-foreground">{{
+                                    service.from
+                                }}</span></Badge
+                            >
+                        </Link>
+                    </span>
+                </li>
+            </ol>
+        </section>
 
         <Form
             v-bind="packagesIndex.form()"
