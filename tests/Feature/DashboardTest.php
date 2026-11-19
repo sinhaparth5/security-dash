@@ -246,6 +246,33 @@ test('a nightly snapshot records each service\'s drift, and the dashboard shows 
             ->where('drift.services.0.majors_change', 2));
 });
 
+test('the coverage strip lists services gone quiet, ungraded or unknown, and acceptances about to expire', function () {
+    $this->travelTo(now()->setDate(2026, 11, 19)->setTime(12, 0));
+    $fresh = ['created_at' => now()->subDays(3), 'last_ping_at' => now()->subHour(), 'evaluated_at' => now()->subMinutes(10), 'status' => ServiceStatus::Green];
+    Service::factory()->create(['name' => 'healthy', ...$fresh]);
+    Service::factory()->create(['name' => 'quiet', ...$fresh, 'last_ping_at' => now()->subDays(2)]);
+    Service::factory()->create(['name' => 'repo', ...$fresh, 'watch_repository' => true, 'last_ping_at' => now()->subDays(5)]); // reports on push
+    Service::factory()->create(['name' => 'stuck', ...$fresh, 'evaluated_at' => now()->subHours(3)]);
+    Service::factory()->create(['name' => 'new', ...$fresh, 'created_at' => now()->subMinutes(5), 'evaluated_at' => null, 'status' => ServiceStatus::Unknown]);
+    $blind = Service::factory()->create(['name' => 'blind', ...$fresh, 'status' => ServiceStatus::Unknown]);
+    Dependency::factory()->for($blind)->count(2)->create(['status' => ServiceStatus::Unknown]);
+    Dependency::factory()->for($blind)->create(['status' => ServiceStatus::Green]);
+    $accepting = Service::factory()->create(['name' => 'accepting', ...$fresh]);
+    $accepting->riskAcceptances()->create(['osv_id' => 'GHSA-soon', 'reason' => 'x', 'expires_at' => now()->addDays(3)]);
+    $accepting->riskAcceptances()->create(['osv_id' => 'GHSA-later', 'reason' => 'x', 'expires_at' => now()->addDays(30)]);
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('coverage.services', 7)
+            ->where('coverage.gaps', fn ($gaps) => collect($gaps)->map(fn (array $gap) => "{$gap['kind']}:{$gap['service']['name']}:{$gap['detail']}")->all() === [
+                'unknown:blind:Unknown: 2 of 3 dependencies have no advisory source',
+                'unknown:new:Unknown: not graded yet',
+                'silent:quiet:last reported 2 days ago',
+                'unevaluated:stuck:last graded 3 hours ago',
+                'expiring:accepting:risk acceptance for GHSA-soon expires on 2026-11-22',
+            ]));
+});
+
 test('the dashboard reports how long each service sat red over 90 days, counting a service still red up to now', function () {
     $this->freezeTime();
     $billing = Service::factory()->create(['name' => 'billing', 'environment' => 'production', 'status' => ServiceStatus::Red]);

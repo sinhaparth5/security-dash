@@ -295,3 +295,13 @@ export type Drift = {
         majors_change: number | null;
     }[];
 };
+
+/** Where the tracker has stopped watching. */
+export type Coverage = {
+    services: number;
+    gaps: {
+        kind: 'silent' | 'unevaluated' | 'unknown' | 'expiring';
+        service: { id: number; name: string; environment: string };
+        detail: string;
+    }[];
+};

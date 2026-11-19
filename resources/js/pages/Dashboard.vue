@@ -32,6 +32,7 @@ import StatusCalendar from '@/components/charts/StatusCalendar.vue';
 import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
+import CoverageStrip from '@/components/CoverageStrip.vue';
 import DriftList from '@/components/DriftList.vue';
 import FixFirstList from '@/components/FixFirstList.vue';
 import FixTimesTable from '@/components/FixTimesTable.vue';
@@ -56,6 +57,7 @@ import { describeStatusCounts, statusMeta, statusOrder } from '@/lib/status';
 import { dashboard } from '@/routes';
 import type {
     Advisory,
+    Coverage,
     Dependency,
     Drift,
     FixTimes,
@@ -86,6 +88,7 @@ const props = defineProps<{
     redTime: RedTime;
     fixFirst: FixFirstItem[];
     drift: Drift;
+    coverage: Coverage;
 }>();
 
 const radarBlips = computed<RadarBlip[]>(() =>
@@ -486,6 +489,8 @@ function dependencyBreakdown(service: MonitoredService) {
                 </p>
             </div>
         </div>
+
+        <CoverageStrip v-if="services.length" :coverage="coverage" />
 
         <div
             v-if="services.length"

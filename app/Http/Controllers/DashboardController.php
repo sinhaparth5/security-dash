@@ -52,6 +52,7 @@ class DashboardController extends Controller
             'redTime' => fn () => self::redTime(),
             'fixFirst' => fn () => self::fixFirst(),
             'drift' => fn () => self::drift(),
+            'coverage' => fn () => self::coverage(),
         ]);
     }
 
@@ -319,6 +320,56 @@ class DashboardController extends Controller
             'services' => array_values($services->filter(fn (array $service) => $service['outdated'] > 0 || $service['end_of_life'] > 0)
                 ->sortByDesc(fn (array $service) => [$service['end_of_life'], $service['majors_behind'], $service['outdated']])->take(10)->all()),
         ];
+    }
+
+    /**
+     * Where the tracker has stopped watching: services silent for a day, services not graded for two hours, services
+     * graded Unknown (with why), and risk acceptances expiring in the next 14 days.
+     *
+     * @return array{services: int, gaps: list<array{kind: string, service: array{id: int, name: string, environment: string}, detail: string}>}
+     */
+    public static function coverage(): array
+    {
+        $services = Service::withCount(['dependencies', 'dependencies as untracked_count' => fn ($query) => $query->where('status', ServiceStatus::Unknown)])
+            ->orderBy('name')->get();
+        $gap = fn (string $kind, Service $service, string $detail) => [
+            'kind' => $kind,
+            'service' => ['id' => $service->id, 'name' => $service->name, 'environment' => $service->environment],
+            'detail' => $detail,
+        ];
+        $gaps = [];
+
+        foreach ($services as $service) {
+            $settled = $service->created_at?->lt(now()->subHours(2)) ?? true;
+            $dependencies = (int) $service->getAttribute('dependencies_count');
+            $untracked = (int) $service->getAttribute('untracked_count');
+
+            // Watched repositories report on push, so a quiet day there is normal.
+            if (! $service->watch_repository && ($service->last_ping_at === null || $service->last_ping_at->lt(now()->subHours(self::STALE_AFTER_HOURS)))) {
+                $gaps[] = $gap('silent', $service, $service->last_ping_at === null ? 'has never reported' : 'last reported '.$service->last_ping_at->diffForHumans());
+            }
+
+            if ($settled && ($service->evaluated_at === null || $service->evaluated_at->lt(now()->subHours(2)))) {
+                $gaps[] = $gap('unevaluated', $service, $service->evaluated_at === null ? 'has never been graded' : 'last graded '.$service->evaluated_at->diffForHumans());
+            }
+
+            if ($service->status === ServiceStatus::Unknown) {
+                $gaps[] = $gap('unknown', $service, match (true) {
+                    $service->evaluated_at === null => 'Unknown: not graded yet',
+                    $dependencies === 0 => 'Unknown: no dependencies reported',
+                    default => "Unknown: {$untracked} of {$dependencies} dependencies have no advisory source",
+                });
+            }
+        }
+
+        RiskAcceptance::with('service')->whereBetween('expires_at', [now(), now()->addDays(14)])->orderBy('expires_at')->get()
+            ->each(function (RiskAcceptance $acceptance) use (&$gaps, $gap) {
+                if ($acceptance->service !== null) {
+                    $gaps[] = $gap('expiring', $acceptance->service, "risk acceptance for {$acceptance->osv_id} expires on ".$acceptance->expires_at?->toDateString());
+                }
+            });
+
+        return ['services' => $services->count(), 'gaps' => $gaps];
     }
 
     /**

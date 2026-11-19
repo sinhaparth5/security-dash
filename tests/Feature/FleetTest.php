@@ -112,6 +112,7 @@ test('the weekly digest summarises red services, recoveries, overdue advisories 
     $recovered = Service::factory()->create(['name' => 'auth', 'environment' => 'staging', 'status' => ServiceStatus::Green]);
     $recovered->statusChanges()->create(['status' => ServiceStatus::Green]);
     $dependency = Dependency::factory()->for($red)->vulnerable()->create(['pull_request_state' => 'open']);
+    Service::factory()->create(['name' => 'quiet', 'environment' => 'staging', 'watch_repository' => false, 'last_ping_at' => now()->subDays(2)]);
     Advisory::factory()->for($dependency)->create(['severity' => 'CRITICAL', 'first_seen_at' => now()->subDays(3)]);
 
     $content = (string) (new WeeklyDigest)->toMail(User::factory()->make())->render();
@@ -122,6 +123,7 @@ test('the weekly digest summarises red services, recoveries, overdue advisories 
         ->toContain('Back to Green: auth (staging).')
         ->toContain('billing (production): 1 overdue advisory.')
         ->toContain('Fix first: ')
+        ->toContain('Blind spot: quiet (staging) last reported 2 days ago.')
         ->toContain('1 upgrade PR opened by Patchwatch is still open.');
 });
 
