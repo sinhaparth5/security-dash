@@ -5,6 +5,7 @@ use App\Enums\ServiceStatus;
 use App\Jobs\EnrichService;
 use App\Jobs\EvaluateService;
 use App\Models\Advisory;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\RiskAcceptance;
 use App\Models\Service;
@@ -487,4 +488,39 @@ test('grading alerts and hands the best-effort steps to their own job, so a slow
     expect($dependency->service->fresh()->status)->toBe(ServiceStatus::Red);
     Notification::assertSentTo($user, ServiceTurnedRed::class);
     Queue::assertPushed(EnrichService::class, fn (EnrichService $job) => $job->service->is($dependency->service));
+});
+
+test('history records when an advisory was fixed, and reopens one that comes back with its first sighting kept', function () {
+    $dependency = Dependency::factory()->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Advisory::factory()->for($dependency)->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9', 'first_seen_at' => now()->subDays(10)->startOfSecond()]);
+    $service = $dependency->service;
+
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    EvaluateService::dispatchSync($service);
+    $row = AdvisoryHistory::sole();
+    expect($row->only(['ecosystem', 'package', 'osv_id']))->toBe(['ecosystem' => 'npm', 'package' => 'lodash', 'osv_id' => 'GHSA-29mw-wpgm-hmr9'])
+        ->and($row->resolved_at)->toBeNull();
+
+    // Http::fake keeps its first stubs, so the later evaluations are played straight into the advisories table.
+    $dependency->advisories()->delete();
+    AdvisoryHistory::sync($service);
+    expect(AdvisoryHistory::sole()->resolved_at)->not->toBeNull();
+
+    Advisory::factory()->for($dependency)->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9', 'first_seen_at' => now()]);
+    AdvisoryHistory::sync($service);
+    $row = AdvisoryHistory::sole();
+    expect($row->resolved_at)->toBeNull()
+        ->and($row->first_seen_at->toDateString())->toBe(now()->subDays(10)->toDateString());
+});
+
+test('an OSV outage resolves nothing in the history', function () {
+    $dependency = Dependency::factory()->vulnerable()->create(['ecosystem' => Ecosystem::Npm, 'name' => 'lodash', 'version' => '4.17.20']);
+    Advisory::factory()->for($dependency)->create(['osv_id' => 'GHSA-29mw-wpgm-hmr9']);
+    fakeUpstream([[['id' => 'GHSA-29mw-wpgm-hmr9', 'modified' => '2025-09-29T21:12:31Z']]]);
+    EvaluateService::dispatchSync($dependency->service);
+
+    Http::fake(['api.osv.dev/*' => Http::response('', 503)]);
+    rescue(fn () => EvaluateService::dispatchSync($dependency->service), report: false);
+
+    expect(AdvisoryHistory::sole()->resolved_at)->toBeNull();
 });

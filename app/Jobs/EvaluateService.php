@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\DependencyGraph;
 use App\Models\Service;
@@ -120,6 +121,8 @@ class EvaluateService implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
             $status = ServiceStatus::worst($evaluations->pluck('status')->merge($imageStatuses->values()));
             $this->service->update(['status' => $status, 'evaluated_at' => now()]);
+            // Only a finished evaluation resolves anything: an upstream failure throws before here, so an outage never reads as a fix.
+            AdvisoryHistory::sync($this->service);
 
             if ($status !== $previousStatus) {
                 $this->service->statusChanges()->create(['status' => $status]);
