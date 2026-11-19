@@ -27,7 +27,7 @@ class WeeklyDigest extends Notification implements ShouldQueue
     }
 
     /**
-     * The last seven days: what turned Red, what recovered, what is overdue and which PRs wait for review.
+     * The last seven days: what turned Red, what recovered, what is overdue, the five advisories to fix first, and which PRs wait for review.
      */
     public function toMail(object $notifiable): MailMessage
     {
@@ -53,6 +53,10 @@ class WeeklyDigest extends Notification implements ShouldQueue
 
         foreach ($overdue as [$service, $count]) {
             $message->line("{$service}: {$count} overdue ".str('advisory')->plural($count).'.');
+        }
+
+        foreach (DashboardController::fixFirst(5) as $i => $item) {
+            $message->line(($i === 0 ? 'Fix first: ' : '').$item['osv_id']." in {$item['package']} on {$item['service']['name']} (".implode(' · ', $item['reasons']).').');
         }
 
         return $message

@@ -49,6 +49,7 @@ class DashboardController extends Controller
             'history' => fn () => self::history(),
             'fixTimes' => fn () => self::fixTimes(),
             'redTime' => fn () => self::redTime(),
+            'fixFirst' => fn () => self::fixFirst(),
         ]);
     }
 
@@ -228,6 +229,67 @@ class DashboardController extends Controller
                 'times_red' => $group->sum('times_red'),
             ])->sortKeys()->all()),
         ];
+    }
+
+    /**
+     * Open advisories in the order to fix them: malware, then known exploited, then by EPSS and severity, scaled down
+     * when the usage scan shows the code never reaches it and outside production. Accepted risks are left out.
+     * Ordering only: it never changes a grade.
+     *
+     * @return list<array{service: array{id: int, name: string, environment: string}, package: string, version: string, osv_id: string, fixed_version: string|null, score: float, reasons: list<string>}>
+     */
+    public static function fixFirst(int $limit = 10): array
+    {
+        $accepted = RiskAcceptance::active()->get(['service_id', 'osv_id'])->map(fn (RiskAcceptance $acceptance) => $acceptance->service_id.':'.$acceptance->osv_id)->flip();
+
+        // ponytail: scores every open advisory in PHP; move the score into SQL past ~50k advisories.
+        return array_values(Advisory::with('dependency.service:id,name,environment')->get()
+            ->reject(fn (Advisory $advisory) => $advisory->dependency->service === null
+                || $accepted->has($advisory->dependency->service_id.':'.$advisory->osv_id))
+            ->map(function (Advisory $advisory) {
+                $service = $advisory->dependency->service;
+                $production = in_array(strtolower($service->environment), ['production', 'prod'], true);
+                $severity = str_replace('MEDIUM', 'MODERATE', strtoupper((string) $advisory->severity));
+                $reasons = match (true) {
+                    $advisory->isMalicious() => ['malware'],
+                    $advisory->known_exploited => ['KEV'],
+                    default => array_values(array_filter([
+                        $advisory->epss !== null ? 'EPSS '.round($advisory->epss * 100).'%' : null,
+                        strtolower($severity ?: 'unrated'),
+                    ])),
+                };
+                // Malware 100 and KEV 50 sit above anything EPSS and severity reach (at most 1 + 20 + 4 = 25).
+                $score = match (true) {
+                    $advisory->isMalicious() => 100,
+                    $advisory->known_exploited => 50,
+                    default => 1 + 20 * ($advisory->epss ?? 0) + (['CRITICAL' => 4, 'HIGH' => 3, 'LOW' => 1][$severity] ?? 2),
+                };
+
+                // Malware runs at install whatever the code calls, so reachability doesn't discount it.
+                if ($advisory->reachable === false && ! $advisory->isMalicious()) {
+                    $score *= 0.25;
+                    $reasons[] = 'not reached';
+                } elseif ($advisory->reachable === true) {
+                    $reasons[] = 'reachable';
+                }
+
+                if (! $production) {
+                    $score *= 0.5;
+                }
+
+                $reasons[] = $production ? 'prod' : $service->environment;
+
+                return [
+                    'service' => ['id' => $service->id, 'name' => $service->name, 'environment' => $service->environment],
+                    'package' => $advisory->dependency->name,
+                    'version' => $advisory->dependency->version,
+                    'osv_id' => $advisory->osv_id,
+                    'fixed_version' => $advisory->fixed_version,
+                    'score' => round($score, 2),
+                    'reasons' => $reasons,
+                ];
+            })
+            ->sortByDesc('score')->take($limit)->all());
     }
 
     /**

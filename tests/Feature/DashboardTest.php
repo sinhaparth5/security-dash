@@ -191,6 +191,32 @@ test('the dashboard reports how late the fleet first saw newly published advisor
             ->where('fixTimes.detection', ['window_days' => 30, 'seen' => 2, 'median_days' => 1, 'p90_days' => 3]));
 });
 
+test('the dashboard ranks open advisories to fix first and says why', function () {
+    $prod = Service::factory()->create(['name' => 'billing', 'environment' => 'production']);
+    $staging = Service::factory()->create(['name' => 'search', 'environment' => 'staging']);
+    $advisory = fn (Service $service, string $osvId, array $attributes = []) => Advisory::factory()
+        ->for(Dependency::factory()->for($service)->create(['name' => $osvId]))
+        ->create(['osv_id' => $osvId, 'severity' => 'MODERATE', 'epss' => null, 'known_exploited' => false, 'reachable' => null, ...$attributes]);
+    $advisory($prod, 'GHSA-epss', ['epss' => 0.5, 'reachable' => true]);            // 1 + 10 + 2 = 13
+    $advisory($prod, 'GHSA-kev', ['known_exploited' => true, 'reachable' => false]); // 50 × 0.25 = 12.5
+    $advisory($staging, 'MAL-1', ['reachable' => false]);                             // 100 × 0.5, reach doesn't discount malware
+    $advisory($prod, 'GHSA-crit', ['severity' => 'CRITICAL']);                        // 1 + 4 = 5
+    $advisory($prod, 'GHSA-accepted', ['known_exploited' => true]);
+    $prod->riskAcceptances()->create(['osv_id' => 'GHSA-accepted', 'reason' => 'Behind the VPN.']);
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('fixFirst', 4)
+            ->where('fixFirst.0.osv_id', 'MAL-1')
+            ->where('fixFirst.0.reasons', ['malware', 'staging'])
+            ->where('fixFirst.1.osv_id', 'GHSA-epss')
+            ->where('fixFirst.1.reasons', ['EPSS 50%', 'moderate', 'reachable', 'prod'])
+            ->where('fixFirst.2.osv_id', 'GHSA-kev')
+            ->where('fixFirst.2.reasons', ['KEV', 'not reached', 'prod'])
+            ->where('fixFirst.3.osv_id', 'GHSA-crit')
+            ->where('fixFirst.3.score', 5));
+});
+
 test('the dashboard reports how long each service sat red over 90 days, counting a service still red up to now', function () {
     $this->freezeTime();
     $billing = Service::factory()->create(['name' => 'billing', 'environment' => 'production', 'status' => ServiceStatus::Red]);

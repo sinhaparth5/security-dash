@@ -258,3 +258,14 @@ export type WatchableRepository = {
     html_url: string;
     service: { id: number; name: string; environment: string } | null;
 };
+
+/** Open advisories in the order to fix them, with why each ranks where it does. */
+export type FixFirstItem = {
+    service: { id: number; name: string; environment: string };
+    package: string;
+    version: string;
+    osv_id: string;
+    fixed_version: string | null;
+    score: number;
+    reasons: string[];
+};

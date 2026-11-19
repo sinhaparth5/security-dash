@@ -92,6 +92,7 @@ test('the weekly digest summarises red services, recoveries, overdue advisories 
         ->toContain('Turned Red this week: billing (production).')
         ->toContain('Back to Green: auth (staging).')
         ->toContain('billing (production): 1 overdue advisory.')
+        ->toContain('Fix first: ')
         ->toContain('1 upgrade PR opened by Patchwatch is still open.');
 });
 

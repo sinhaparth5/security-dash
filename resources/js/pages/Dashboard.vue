@@ -12,6 +12,7 @@ import {
     CalendarRange,
     Clock,
     Hourglass,
+    ListOrdered,
     ListChecks,
     NotebookPen,
     PieChart,
@@ -30,6 +31,7 @@ import StatusCalendar from '@/components/charts/StatusCalendar.vue';
 import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
+import FixFirstList from '@/components/FixFirstList.vue';
 import FixTimesTable from '@/components/FixTimesTable.vue';
 import FleetRadar from '@/components/FleetRadar.vue';
 import type { RadarBlip } from '@/components/FleetRadar.vue';
@@ -56,6 +58,7 @@ import type {
     FixTimes,
     MonitoredService,
     Pipeline,
+    FixFirstItem,
     RedTime,
     Status,
     StatusHistory,
@@ -78,6 +81,7 @@ const props = defineProps<{
     history: StatusHistory;
     fixTimes: FixTimes;
     redTime: RedTime;
+    fixFirst: FixFirstItem[];
 }>();
 
 const radarBlips = computed<RadarBlip[]>(() =>
@@ -527,6 +531,10 @@ function dependencyBreakdown(service: MonitoredService) {
             </div>
 
             <div class="flex min-w-0 flex-col gap-4">
+                <Panel title="fix these first" :icon="ListOrdered">
+                    <FixFirstList :items="fixFirst" />
+                </Panel>
+
                 <Panel title="status changes" :icon="CalendarDays">
                     <StatusCalendar :events="history.events" />
                 </Panel>
