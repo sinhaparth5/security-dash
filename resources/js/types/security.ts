@@ -52,6 +52,21 @@ export type Pipeline = {
     failed_jobs: number;
 };
 
+/** How long fixes took over the window: median and p90 days, and the share fixed inside the deadline. */
+export type FixTimeRow = {
+    label: string;
+    fixed: number;
+    median_days: number;
+    p90_days: number;
+    on_time: number;
+};
+
+export type FixTimes = {
+    window_days: number;
+    severity: FixTimeRow[];
+    environment: FixTimeRow[];
+};
+
 /** Services per status at the end of each of the last 30 days, plus this month's changes. */
 export type StatusHistory = {
     trend: ({ date: string } & Record<Status, number>)[];

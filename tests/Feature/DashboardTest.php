@@ -2,6 +2,7 @@
 
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\Service;
 use App\Models\User;
@@ -139,4 +140,33 @@ test('the dashboard charts how many services sat in each status per day and list
             ->has('history.events', 1)
             ->where('history.events.0.service', 'api')
             ->where('history.events.0.status', 'red'));
+});
+
+test('the dashboard reports how long fixes took by severity and environment, and how many met their deadline', function () {
+    $this->freezeTime();
+    $prod = Service::factory()->create(['environment' => 'production']);
+    $staging = Service::factory()->create(['environment' => 'staging']);
+    $fix = fn (Service $service, string $osvId, ?string $severity, int $days, int $ago = 1) => AdvisoryHistory::create([
+        'service_id' => $service->id, 'ecosystem' => 'npm', 'package' => $osvId, 'osv_id' => $osvId, 'severity' => $severity,
+        'first_seen_at' => now()->subDays($ago + $days), 'resolved_at' => now()->subDays($ago),
+    ]);
+    $fix($prod, 'GHSA-1', 'CRITICAL', 1);
+    $fix($prod, 'GHSA-2', 'CRITICAL', 2); // the deadline day itself is on time
+    $fix($staging, 'GHSA-3', 'critical', 5);
+    $fix($prod, 'GHSA-4', 'MEDIUM', 10);
+    $fix($prod, 'MAL-1', null, 3);
+    $fix($prod, 'GHSA-old', 'HIGH', 1, ago: 91); // outside the 90-day window
+    AdvisoryHistory::create(['service_id' => $prod->id, 'ecosystem' => 'npm', 'package' => 'open', 'osv_id' => 'GHSA-5', 'severity' => 'LOW', 'first_seen_at' => now()->subDays(50)]);
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('fixTimes.severity', [
+                ['label' => 'MALWARE', 'fixed' => 1, 'median_days' => 3, 'p90_days' => 3, 'on_time' => 0],
+                ['label' => 'CRITICAL', 'fixed' => 3, 'median_days' => 2, 'p90_days' => 5, 'on_time' => 67],
+                ['label' => 'MODERATE', 'fixed' => 1, 'median_days' => 10, 'p90_days' => 10, 'on_time' => 100],
+            ])
+            ->where('fixTimes.environment', [
+                ['label' => 'production', 'fixed' => 4, 'median_days' => 2, 'p90_days' => 10, 'on_time' => 75],
+                ['label' => 'staging', 'fixed' => 1, 'median_days' => 5, 'p90_days' => 5, 'on_time' => 0],
+            ]));
 });

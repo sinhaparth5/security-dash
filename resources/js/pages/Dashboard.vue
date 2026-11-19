@@ -20,6 +20,7 @@ import {
     ServerOff,
     Skull,
     Square,
+    Timer,
     TriangleAlert,
     X,
 } from '@lucide/vue';
@@ -29,6 +30,7 @@ import StatusCalendar from '@/components/charts/StatusCalendar.vue';
 import StatusDonut from '@/components/charts/StatusDonut.vue';
 import StatusTrend from '@/components/charts/StatusTrend.vue';
 import Panel from '@/components/Panel.vue';
+import FixTimesTable from '@/components/FixTimesTable.vue';
 import FleetRadar from '@/components/FleetRadar.vue';
 import type { RadarBlip } from '@/components/FleetRadar.vue';
 import RegisterServiceSheet from '@/components/RegisterServiceSheet.vue';
@@ -50,6 +52,7 @@ import { dashboard } from '@/routes';
 import type {
     Advisory,
     Dependency,
+    FixTimes,
     MonitoredService,
     Pipeline,
     Status,
@@ -71,6 +74,7 @@ const props = defineProps<{
     services: MonitoredService[];
     pipeline: Pipeline;
     history: StatusHistory;
+    fixTimes: FixTimes;
 }>();
 
 const radarBlips = computed<RadarBlip[]>(() =>
@@ -530,6 +534,10 @@ function dependencyBreakdown(service: MonitoredService) {
 
                 <Panel title="fleet over 30 days" :icon="Activity">
                     <StatusTrend :trend="history.trend" />
+                </Panel>
+
+                <Panel title="fix times" :icon="Timer">
+                    <FixTimesTable :fix-times="fixTimes" />
                 </Panel>
             </div>
 

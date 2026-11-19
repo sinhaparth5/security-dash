@@ -60,9 +60,15 @@ class Advisory extends Model
      */
     public function dueAt(): CarbonInterface
     {
-        $days = $this->isMalicious() || $this->known_exploited ? 1 : self::SLA_DAYS[strtoupper((string) $this->severity)] ?? self::SLA_DAYS['MODERATE'];
+        return ($this->first_seen_at ?? $this->created_at ?? now())->copy()->addDays(self::deadlineDays($this->osv_id, $this->severity, $this->known_exploited));
+    }
 
-        return ($this->first_seen_at ?? $this->created_at ?? now())->copy()->addDays($days);
+    /**
+     * Days allowed to fix an advisory: malware and actively exploited ones get a day.
+     */
+    public static function deadlineDays(string $osvId, ?string $severity, bool $knownExploited = false): int
+    {
+        return str_starts_with($osvId, 'MAL-') || $knownExploited ? 1 : self::SLA_DAYS[strtoupper((string) $severity)] ?? self::SLA_DAYS['MODERATE'];
     }
 
     /**

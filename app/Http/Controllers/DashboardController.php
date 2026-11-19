@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\DependencyGraph;
 use App\Models\RiskAcceptance;
@@ -45,6 +46,7 @@ class DashboardController extends Controller
             'services' => $services,
             'pipeline' => fn () => self::pipeline(),
             'history' => fn () => self::history(),
+            'fixTimes' => fn () => self::fixTimes(),
         ]);
     }
 
@@ -96,6 +98,60 @@ class DashboardController extends Controller
                 ])
                 ->all()),
         ];
+    }
+
+    /**
+     * How long fixes took over the last 90 days, from first sighting to the evaluation that no longer found the
+     * advisory, by severity and by environment, and the share fixed inside its deadline (Advisory::deadlineDays;
+     * KEV status isn't kept in the history, so exploited advisories are held to their severity's deadline).
+     *
+     * @return array{window_days: int, severity: list<array<string, mixed>>, environment: list<array<string, mixed>>}
+     */
+    public static function fixTimes(): array
+    {
+        $window = 90;
+        $fixes = AdvisoryHistory::query()->join('services', 'services.id', '=', 'advisory_history.service_id')
+            ->where('resolved_at', '>=', now()->subDays($window))
+            ->get(['advisory_history.osv_id', 'advisory_history.severity', 'advisory_history.first_seen_at', 'advisory_history.resolved_at', 'services.environment'])
+            ->map(fn (AdvisoryHistory $fix) => [
+                'severity' => match (true) {
+                    str_starts_with($fix->osv_id, 'MAL-') => 'MALWARE',
+                    $fix->severity === null => 'UNRATED',
+                    default => str_replace('MEDIUM', 'MODERATE', strtoupper($fix->severity)),
+                },
+                'environment' => (string) $fix->getAttribute('environment'),
+                'days' => $fix->first_seen_at->diffInSeconds($fix->resolved_at) / 86400,
+                'deadline' => Advisory::deadlineDays($fix->osv_id, $fix->severity),
+            ]);
+
+        $summarise = fn (Collection $group, string $key) => [
+            'label' => $group->first()[$key],
+            'fixed' => $group->count(),
+            'median_days' => self::percentile($group->pluck('days'), 0.5),
+            'p90_days' => self::percentile($group->pluck('days'), 0.9),
+            'on_time' => round($group->filter(fn (array $fix) => $fix['days'] <= $fix['deadline'])->count() / $group->count() * 100),
+        ];
+        // ponytail: a severity label not listed here sorts with the first; add it if OSV starts using one.
+        $order = ['MALWARE', 'CRITICAL', 'HIGH', 'MODERATE', 'LOW', 'UNRATED'];
+
+        return [
+            'window_days' => $window,
+            'severity' => array_values($fixes->groupBy('severity')->map(fn (Collection $group) => $summarise($group, 'severity'))
+                ->sortBy(fn (array $row) => array_search($row['label'], $order, true))->all()),
+            'environment' => array_values($fixes->groupBy('environment')->map(fn (Collection $group) => $summarise($group, 'environment'))->sortKeys()->all()),
+        ];
+    }
+
+    /**
+     * Nearest-rank percentile, in days to one decimal.
+     *
+     * @param  Collection<int, float>  $values
+     */
+    private static function percentile(Collection $values, float $p): float
+    {
+        $sorted = $values->sort()->values();
+
+        return round($sorted[max(0, (int) ceil($p * $sorted->count()) - 1)], 1);
     }
 
     /**
