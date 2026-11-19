@@ -19,8 +19,9 @@ use Illuminate\Support\Carbon;
  * @property string|null $severity
  * @property Carbon $first_seen_at
  * @property Carbon|null $resolved_at
+ * @property Carbon|null $published_at
  */
-#[Fillable(['service_id', 'ecosystem', 'package', 'osv_id', 'severity', 'first_seen_at', 'resolved_at'])]
+#[Fillable(['service_id', 'ecosystem', 'package', 'osv_id', 'severity', 'first_seen_at', 'resolved_at', 'published_at'])]
 class AdvisoryHistory extends Model
 {
     protected $table = 'advisory_history';
@@ -36,7 +37,7 @@ class AdvisoryHistory extends Model
         $now = now();
         $current = Advisory::query()->join('dependencies', 'dependencies.id', '=', 'advisories.dependency_id')
             ->where('dependencies.service_id', $service->id)
-            ->get(['advisories.osv_id', 'advisories.severity', 'advisories.first_seen_at', 'advisories.created_at', 'dependencies.ecosystem', 'dependencies.name'])
+            ->get(['advisories.osv_id', 'advisories.severity', 'advisories.first_seen_at', 'advisories.created_at', 'advisories.published_at', 'dependencies.ecosystem', 'dependencies.name'])
             ->map(fn (Advisory $advisory) => [
                 'service_id' => $service->id,
                 'ecosystem' => (string) $advisory->getAttribute('ecosystem'),
@@ -45,6 +46,7 @@ class AdvisoryHistory extends Model
                 'severity' => $advisory->severity,
                 'first_seen_at' => $advisory->first_seen_at ?? $advisory->created_at ?? $now,
                 'resolved_at' => null,
+                'published_at' => $advisory->published_at,
             ]); // dependencies are unique per (service, ecosystem, name), so each key appears once
 
         $open = self::where('service_id', $service->id)->whereNull('resolved_at')->get();
@@ -52,7 +54,7 @@ class AdvisoryHistory extends Model
         self::whereKey($fixed->modelKeys())->update(['resolved_at' => $now]);
 
         // first_seen_at is left out of the update columns, so a reopened advisory keeps its original date.
-        self::upsert($current->values()->all(), ['service_id', 'ecosystem', 'package', 'osv_id'], ['severity', 'resolved_at']);
+        self::upsert($current->values()->all(), ['service_id', 'ecosystem', 'package', 'osv_id'], ['severity', 'resolved_at', 'published_at']);
     }
 
     /**
@@ -79,6 +81,7 @@ class AdvisoryHistory extends Model
         return [
             'first_seen_at' => 'datetime',
             'resolved_at' => 'datetime',
+            'published_at' => 'datetime',
         ];
     }
 }

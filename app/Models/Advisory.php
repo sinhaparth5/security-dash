@@ -25,10 +25,11 @@ use Illuminate\Support\Carbon;
  * @property float|null $epss
  * @property array{urgency: float, urgency_confidence: float, action: string, action_confidence: float}|null $triage
  * @property Carbon|null $first_seen_at
+ * @property Carbon|null $published_at when OSV published it; null for synthetic advisories
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'affected_packages', 'affected_symbols', 'reachable', 'known_exploited', 'epss', 'triage', 'first_seen_at'])]
+#[Fillable(['osv_id', 'aliases', 'severity', 'summary', 'fixed_version', 'affected_packages', 'affected_symbols', 'reachable', 'known_exploited', 'epss', 'triage', 'first_seen_at', 'published_at'])]
 class Advisory extends Model
 {
     /** @use HasFactory<AdvisoryFactory> */
@@ -95,6 +96,7 @@ class Advisory extends Model
             'affected_symbols' => 'array',
             'reachable' => 'boolean',
             'first_seen_at' => 'datetime',
+            'published_at' => 'datetime',
         ];
     }
 }

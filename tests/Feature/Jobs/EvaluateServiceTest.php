@@ -36,6 +36,7 @@ function fakeUpstream(array $vulnsPerQuery, string $npmLatest = '4.17.21', strin
         'api.osv.dev/v1/vulns/*' => Http::response([
             'id' => $osvId,
             'summary' => 'ReDoS in lodash',
+            'published' => '2021-02-15T11:15:00Z',
             'aliases' => ['CVE-2020-28500'],
             'database_specific' => ['severity' => 'MODERATE'],
             'affected' => [['package' => ['name' => 'lodash', 'ecosystem' => 'npm'], 'ranges' => [['events' => [['introduced' => '0'], ['fixed' => '4.17.21']]]]]],
@@ -55,6 +56,7 @@ test('a dependency with an advisory turns red and stores the advisory', function
     $this->assertDatabaseHas('advisories', [
         'dependency_id' => $dependency->id, 'osv_id' => 'GHSA-29mw-wpgm-hmr9', 'severity' => 'MODERATE', 'fixed_version' => '4.17.21',
     ]);
+    expect(AdvisoryHistory::sole()->published_at?->toIso8601String())->toBe('2021-02-15T11:15:00+00:00');
 });
 
 test('an advisory with no fixed version turns the dependency yellow and mails no one', function () {

@@ -68,4 +68,16 @@ const onTimeClass = (row: FixTimeRow) =>
             </tbody>
         </template>
     </table>
+    <p class="mt-2 text-xs text-muted-foreground tabular-nums">
+        <template v-if="fixTimes.detection.median_days !== null">
+            Seen {{ days(fixTimes.detection.median_days) }} after OSV published
+            (p90 {{ days(fixTimes.detection.p90_days ?? 0) }}) across
+            {{ fixTimes.detection.seen }} advisories, last
+            {{ fixTimes.detection.window_days }} days.
+        </template>
+        <template v-else>
+            No newly published advisories seen in the last
+            {{ fixTimes.detection.window_days }} days.
+        </template>
+    </p>
 </template>

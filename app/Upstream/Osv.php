@@ -18,7 +18,7 @@ class Osv
      * Throws on upstream failure so a caller never mistakes an outage for "no advisories".
      *
      * @param  iterable<Dependency>  $dependencies
-     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}>>
+     * @return array<int, list<array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, published_at: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}>>
      */
     public function advisories(iterable $dependencies): array
     {
@@ -146,8 +146,8 @@ class Osv
     }
 
     /**
-     * @param  array{id: string, aliases?: list<string>, summary?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string, symbols?: list<string>}>}}>}  $vulnerability
-     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}
+     * @param  array{id: string, aliases?: list<string>, summary?: string, published?: string, database_specific?: array{severity?: string}, affected?: list<array{package?: array{name?: string, ecosystem?: string}, ranges?: list<array{events?: list<array{fixed?: string}>}>, ecosystem_specific?: array{imports?: list<array{path: string, symbols?: list<string>}>}}>}  $vulnerability
+     * @return array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, published_at: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}
      */
     private function advisory(array $vulnerability, Dependency $dependency): array
     {
@@ -173,6 +173,7 @@ class Osv
             'aliases' => $vulnerability['aliases'] ?? [],
             'severity' => $vulnerability['database_specific']['severity'] ?? null,
             'summary' => $vulnerability['summary'] ?? null,
+            'published_at' => $vulnerability['published'] ?? null,
             'fixed_version' => $fixedVersion,
             // Go advisories name the vulnerable packages inside the module, e.g. only x/crypto/openpgp.
             'affected_packages' => array_values(array_unique(array_column($imports, 'path'))),

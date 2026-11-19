@@ -146,7 +146,7 @@ class ReviewPullRequest implements ShouldQueue
     }
 
     /**
-     * @param  Collection<int, array{dependency: Dependency, advisory: array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}, reachable: bool|null, blocking: bool}>  $findings
+     * @param  Collection<int, array{dependency: Dependency, advisory: array{osv_id: string, aliases: list<string>, severity: string|null, summary: string|null, published_at: string|null, fixed_version: string|null, affected_packages: list<string>, affected_symbols: list<string>}, reachable: bool|null, blocking: bool}>  $findings
      * @param  list<string>  $warnings
      * @param  list<string>  $fixed
      * @param  Collection<string, Dependency>  $changed

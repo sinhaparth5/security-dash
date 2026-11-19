@@ -23,6 +23,7 @@ test('advisories maps OSV results to each dependency with the nearest fixed vers
         'api.osv.dev/v1/vulns/GHSA-29mw-wpgm-hmr9' => Http::response([
             'id' => 'GHSA-29mw-wpgm-hmr9',
             'summary' => 'ReDoS in lodash',
+            'published' => '2021-02-15T11:15:00Z',
             'aliases' => ['CVE-2020-28500'],
             'database_specific' => ['severity' => 'MODERATE'],
             'affected' => [
@@ -41,6 +42,7 @@ test('advisories maps OSV results to each dependency with the nearest fixed vers
         'aliases' => ['CVE-2020-28500'],
         'severity' => 'MODERATE',
         'summary' => 'ReDoS in lodash',
+        'published_at' => '2021-02-15T11:15:00Z',
         'fixed_version' => '4.17.21',
         'affected_packages' => [],
         'affected_symbols' => [],

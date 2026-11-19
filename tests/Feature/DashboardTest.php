@@ -171,6 +171,26 @@ test('the dashboard reports how long fixes took by severity and environment, and
             ]));
 });
 
+test('the dashboard reports how late the fleet first saw newly published advisories', function () {
+    $this->freezeTime();
+    $old = Service::factory()->create(['created_at' => now()->subDays(100)]);
+    $new = Service::factory()->create(['created_at' => now()->subDays(5)]);
+    $seen = fn (Service $service, string $osvId, ?int $publishedAgo, int $seenAgo) => AdvisoryHistory::create([
+        'service_id' => $service->id, 'ecosystem' => 'npm', 'package' => 'lodash', 'osv_id' => $osvId,
+        'published_at' => $publishedAgo === null ? null : now()->subDays($publishedAgo), 'first_seen_at' => now()->subDays($seenAgo),
+    ]);
+    $seen($old, 'GHSA-1', 10, 9);  // 1 day late
+    $seen($new, 'GHSA-1', 10, 2);  // a later sighting elsewhere doesn't count
+    $seen($old, 'GHSA-2', 20, 17); // 3 days late
+    $seen($new, 'GHSA-3', 50, 4);  // published before that service reported: onboarding, not detection
+    $seen($old, 'GHSA-4', 60, 40); // first seen outside the 30 days
+    $seen($old, 'EOL-node', null, 1); // synthetic, no publish date
+
+    $this->actingAs(User::factory()->create())->get(route('dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('fixTimes.detection', ['window_days' => 30, 'seen' => 2, 'median_days' => 1, 'p90_days' => 3]));
+});
+
 test('the dashboard reports how long each service sat red over 90 days, counting a service still red up to now', function () {
     $this->freezeTime();
     $billing = Service::factory()->create(['name' => 'billing', 'environment' => 'production', 'status' => ServiceStatus::Red]);

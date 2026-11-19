@@ -11,6 +11,7 @@ use App\Models\DependencyGraph;
 use App\Models\RiskAcceptance;
 use App\Models\Service;
 use App\Models\StatusChange;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -106,7 +107,7 @@ class DashboardController extends Controller
      * advisory, by severity and by environment, and the share fixed inside its deadline (Advisory::deadlineDays;
      * KEV status isn't kept in the history, so exploited advisories are held to their severity's deadline).
      *
-     * @return array{window_days: int, severity: list<array<string, mixed>>, environment: list<array<string, mixed>>}
+     * @return array{window_days: int, severity: list<array<string, mixed>>, environment: list<array<string, mixed>>, detection: array<string, mixed>}
      */
     public static function fixTimes(): array
     {
@@ -140,6 +141,36 @@ class DashboardController extends Controller
             'severity' => array_values($fixes->groupBy('severity')->map(fn (Collection $group) => $summarise($group, 'severity'))
                 ->sortBy(fn (array $row) => array_search($row['label'], $order, true))->all()),
             'environment' => array_values($fixes->groupBy('environment')->map(fn (Collection $group) => $summarise($group, 'environment'))->sortKeys()->all()),
+            'detection' => self::detectionDelay(),
+        ];
+    }
+
+    /**
+     * How late the fleet first saw advisories OSV published, over the last 30 days: from OSV's publish date to the
+     * first evaluation anywhere that found it. Only advisories published after the service that first saw them
+     * started reporting count, so onboarding a service with old advisories doesn't read as slow detection.
+     *
+     * @return array{window_days: int, seen: int, median_days: float|null, p90_days: float|null}
+     */
+    public static function detectionDelay(): array
+    {
+        $window = 30;
+        // ponytail: reads every history row OSV dated; bound by published_at if the history grows past ~100k rows.
+        $delays = AdvisoryHistory::query()->join('services', 'services.id', '=', 'advisory_history.service_id')
+            ->whereNotNull('advisory_history.published_at')
+            ->get(['advisory_history.osv_id', 'advisory_history.first_seen_at', 'advisory_history.published_at', 'services.created_at as service_created_at'])
+            ->groupBy('osv_id')
+            ->map(fn (Collection $rows) => $rows->sortBy('first_seen_at')->firstOrFail())
+            ->filter(fn (AdvisoryHistory $first) => $first->first_seen_at->gte(now()->subDays($window))
+                && $first->published_at?->gte(Carbon::parse((string) $first->getAttribute('service_created_at'))))
+            ->map(fn (AdvisoryHistory $first) => max(0.0, $first->published_at?->diffInSeconds($first->first_seen_at) / 86400))
+            ->values();
+
+        return [
+            'window_days' => $window,
+            'seen' => $delays->count(),
+            'median_days' => $delays->isEmpty() ? null : self::percentile($delays, 0.5),
+            'p90_days' => $delays->isEmpty() ? null : self::percentile($delays, 0.9),
         ];
     }
 

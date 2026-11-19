@@ -65,6 +65,13 @@ export type FixTimes = {
     window_days: number;
     severity: FixTimeRow[];
     environment: FixTimeRow[];
+    /** Days from OSV publishing an advisory to the fleet first seeing it. */
+    detection: {
+        window_days: number;
+        seen: number;
+        median_days: number | null;
+        p90_days: number | null;
+    };
 };
 
 /** How long services sat Red over the window: the ten slowest, and totals per environment. */
