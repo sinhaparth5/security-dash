@@ -15,10 +15,10 @@ use Illuminate\Support\Carbon;
  * @property int $service_id
  * @property Carbon $date
  * @property ServiceStatus $status
- * @property int $dependencies
- * @property int $outdated newer release available
- * @property int $majors_behind summed over dependencies
- * @property int $end_of_life runtimes past end of life
+ * @property int|null $dependencies null on rows backfilled from status history, before drift was measured
+ * @property int|null $outdated newer release available
+ * @property int|null $majors_behind summed over dependencies
+ * @property int|null $end_of_life runtimes past end of life
  */
 #[Fillable(['service_id', 'date', 'status', 'dependencies', 'outdated', 'majors_behind', 'end_of_life'])]
 class ServiceSnapshot extends Model

@@ -91,6 +91,9 @@ const props = defineProps<{
     coverage: Coverage;
 }>();
 
+/** '' is the whole fleet; otherwise one environment's trend, so a Red prod service isn't diluted by dev. */
+const trendEnvironment = ref('');
+
 const radarBlips = computed<RadarBlip[]>(() =>
     props.services.map((service) => {
         const advisories = service.dependencies.reduce(
@@ -553,7 +556,37 @@ function dependencyBreakdown(service: MonitoredService) {
                 </Panel>
 
                 <Panel title="fleet over 30 days" :icon="Activity">
-                    <StatusTrend :trend="history.trend" />
+                    <div
+                        v-if="Object.keys(history.environments).length > 1"
+                        class="mb-2 flex flex-wrap gap-1 text-xs"
+                        role="group"
+                        aria-label="Environment"
+                    >
+                        <button
+                            v-for="environment in [
+                                '',
+                                ...Object.keys(history.environments),
+                            ]"
+                            :key="environment"
+                            type="button"
+                            class="rounded-sm px-1.5 py-0.5 lowercase"
+                            :class="
+                                trendEnvironment === environment
+                                    ? 'bg-accent font-medium'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            "
+                            :aria-pressed="trendEnvironment === environment"
+                            @click="trendEnvironment = environment"
+                        >
+                            {{ environment || 'all' }}
+                        </button>
+                    </div>
+                    <StatusTrend
+                        :trend="
+                            history.environments[trendEnvironment] ??
+                            history.trend
+                        "
+                    />
                 </Panel>
 
                 <Panel title="fix times" :icon="Timer">

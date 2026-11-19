@@ -4,9 +4,11 @@ namespace App\Notifications;
 
 use App\Enums\ServiceStatus;
 use App\Http\Controllers\DashboardController;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\Service;
 use App\Models\StatusChange;
+use Carbon\CarbonInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -24,6 +26,26 @@ class WeeklyDigest extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         return ['mail'];
+    }
+
+    /**
+     * What moved this week, from the advisory history: new advisories by severity and how many were fixed.
+     * Each counts once per service and package, so one advisory in three services is three.
+     */
+    public static function advisoryChanges(CarbonInterface $since): string
+    {
+        $new = AdvisoryHistory::where('first_seen_at', '>=', $since)->get(['osv_id', 'severity'])
+            ->countBy(fn (AdvisoryHistory $row) => match (true) {
+                str_starts_with($row->osv_id, 'MAL-') => 'malware',
+                $row->severity === null => 'unrated',
+                default => strtolower(str_replace('MEDIUM', 'MODERATE', strtoupper($row->severity))),
+            })
+            ->sortBy(fn (int $count, string $severity) => array_search($severity, ['malware', 'critical', 'high', 'moderate', 'low', 'unrated'], true));
+        $fixed = AdvisoryHistory::where('resolved_at', '>=', $since)->count();
+        $total = $new->sum();
+
+        return 'This week: '.($total === 0 ? 'no new advisories' : "+{$total} new (".$new->map(fn (int $count, string $severity) => "{$count} {$severity}")->join(', ').')')
+            .", {$fixed} fixed.";
     }
 
     /**
@@ -49,7 +71,8 @@ class WeeklyDigest extends Notification implements ShouldQueue
             ->subject('Patchwatch weekly digest')
             ->line("{$red} ".str('service')->plural($red).($red === 1 ? ' needs' : ' need').' a security patch right now.')
             ->line($turnedRed->isEmpty() ? 'Nothing turned Red this week.' : 'Turned Red this week: '.$turnedRed->join(', ').'.')
-            ->line($recovered->isEmpty() ? 'Nothing recovered to Green this week.' : 'Back to Green: '.$recovered->join(', ').'.');
+            ->line($recovered->isEmpty() ? 'Nothing recovered to Green this week.' : 'Back to Green: '.$recovered->join(', ').'.')
+            ->line(self::advisoryChanges($since));
 
         foreach ($overdue as [$service, $count]) {
             $message->line("{$service}: {$count} overdue ".str('advisory')->plural($count).'.');

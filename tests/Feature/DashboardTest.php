@@ -123,13 +123,17 @@ test('the service page includes its status history newest first', function () {
             ->where('history.1.status', 'green'));
 });
 
-test('the dashboard charts how many services sat in each status per day and lists this month\'s changes', function () {
+test('the dashboard charts each day\'s statuses from snapshots backfilled from status history, per environment', function () {
     $this->travelTo(now()->setDate(2026, 10, 20)->setTime(12, 0));
-    $api = Service::factory()->create(['name' => 'api', 'status' => ServiceStatus::Red, 'created_at' => now()->subDays(40)]);
+    $api = Service::factory()->create(['name' => 'api', 'environment' => 'production', 'status' => ServiceStatus::Red, 'created_at' => now()->subDays(40)]);
     $api->statusChanges()->forceCreate(['status' => ServiceStatus::Green, 'created_at' => now()->subDays(40)]);
     $api->statusChanges()->forceCreate(['status' => ServiceStatus::Red, 'created_at' => now()->subDays(2)]);
     // Graded before status history existed: counted from registration with its current status.
-    Service::factory()->create(['status' => ServiceStatus::Yellow, 'created_at' => now()->subDays(10)]);
+    Service::factory()->create(['environment' => 'staging', 'status' => ServiceStatus::Yellow, 'created_at' => now()->subDays(10)]);
+
+    (require database_path('migrations/2026_11_19_150000_backfill_service_snapshots.php'))->up();
+    // A night the scheduler missed: the service keeps its previous day's status.
+    ServiceSnapshot::where('service_id', $api->id)->where('date', '2026-10-11')->delete();
 
     $this->actingAs(User::factory()->create())
         ->get(route('dashboard'))
@@ -138,6 +142,9 @@ test('the dashboard charts how many services sat in each status per day and list
             ->where('history.trend.0', ['date' => '2026-09-21', 'green' => 1, 'yellow' => 0, 'red' => 0, 'unknown' => 0])
             ->where('history.trend.20', ['date' => '2026-10-11', 'green' => 1, 'yellow' => 1, 'red' => 0, 'unknown' => 0])
             ->where('history.trend.29', ['date' => '2026-10-20', 'green' => 0, 'yellow' => 1, 'red' => 1, 'unknown' => 0])
+            ->where('history.environments.production.29', ['date' => '2026-10-20', 'green' => 0, 'yellow' => 0, 'red' => 1, 'unknown' => 0])
+            ->where('history.environments.staging.0', ['date' => '2026-09-21', 'green' => 0, 'yellow' => 0, 'red' => 0, 'unknown' => 0])
+            ->where('history.environments.staging.29.yellow', 1)
             ->has('history.events', 1)
             ->where('history.events.0.service', 'api')
             ->where('history.events.0.status', 'red'));

@@ -57,45 +57,57 @@ class DashboardController extends Controller
     }
 
     /**
-     * How many services sat in each status at the end of each of the last 30 days,
-     * and this month's status changes for the calendar.
+     * How many services sat in each status at the end of each of the last 30 days, for the fleet and per environment,
+     * and this month's status changes for the calendar. Past days come from the nightly snapshots (a service missing a
+     * day keeps its previous one); today is the live status.
      *
-     * @return array{trend: list<array<string, int|string>>, events: list<array{service_id: int, service: string, status: ServiceStatus, at: string}>}
+     * @return array{trend: list<array<string, int|string>>, environments: array<string, list<array<string, int|string>>>, events: list<array{service_id: int, service: string, status: ServiceStatus, at: string}>}
      */
     public static function history(): array
     {
-        // ponytail: replays every status change ever; bound it to a snapshot per day once the table grows past ~100k rows
-        $changes = StatusChange::query()->orderBy('created_at')->orderBy('id')->get(['service_id', 'status', 'created_at'])->groupBy('service_id');
-        $services = Service::query()->get(['id', 'name', 'status', 'created_at']);
+        $services = Service::query()->get(['id', 'name', 'environment', 'status']);
+        $environments = $services->pluck('environment', 'id');
+        $snapshots = ServiceSnapshot::where('date', '>=', today()->subDays(29)->toDateString())->orderBy('date')->get(['service_id', 'date', 'status'])
+            ->groupBy(fn (ServiceSnapshot $snapshot) => $snapshot->date->toDateString());
+        $empty = array_fill_keys(array_map(fn (ServiceStatus $status) => $status->value, ServiceStatus::cases()), 0);
 
+        $current = [];
         $trend = [];
+        $byEnvironment = [];
 
         foreach (range(29, 0) as $daysAgo) {
-            $endOfDay = now()->subDays($daysAgo)->endOfDay();
-            $day = ['date' => $endOfDay->toDateString()] + array_fill_keys(array_map(fn (ServiceStatus $status) => $status->value, ServiceStatus::cases()), 0);
+            $date = today()->subDays($daysAgo)->toDateString();
+            $current = $daysAgo === 0
+                ? $services->mapWithKeys(fn (Service $service) => [$service->id => $service->status])->all()
+                : collect($snapshots->get($date, []))->mapWithKeys(fn (ServiceSnapshot $snapshot) => [$snapshot->service_id => $snapshot->status])->all() + $current;
+            $day = ['date' => $date] + $empty;
+            $perEnvironment = [];
 
-            foreach ($services as $service) {
-                $timeline = $changes->get($service->id, new Collection);
-                $change = $timeline->last(fn (StatusChange $change) => $change->created_at->lte($endOfDay));
-                // Services graded before status history existed have no rows: count them from when they were registered.
-                $status = $change instanceof StatusChange
-                    ? $change->status
-                    : ($timeline->isEmpty() && $service->created_at?->lte($endOfDay) ? $service->status : null);
-
-                if ($status !== null) {
-                    $day[$status->value]++;
+            foreach ($current as $serviceId => $status) {
+                if (! $environments->has($serviceId)) {
+                    continue; // deleted since
                 }
+
+                $environment = (string) $environments[$serviceId];
+                $perEnvironment[$environment] ??= ['date' => $date] + $empty;
+                $perEnvironment[$environment][$status->value]++;
+                $day[$status->value]++;
             }
 
             $trend[] = $day;
+
+            foreach ($environments->unique() as $environment) {
+                $byEnvironment[$environment][] = $perEnvironment[$environment] ?? ['date' => $date] + $empty;
+            }
         }
 
         $names = $services->pluck('name', 'id');
+        ksort($byEnvironment);
 
         return [
             'trend' => $trend,
-            'events' => array_values($changes->flatten()
-                ->filter(fn (StatusChange $change) => $change->created_at->gte(now()->startOfMonth()))
+            'environments' => $byEnvironment,
+            'events' => array_values(StatusChange::where('created_at', '>=', now()->startOfMonth())->orderBy('created_at')->orderBy('id')->get()
                 ->map(fn (StatusChange $change) => [
                     'service_id' => $change->service_id,
                     'service' => (string) $names->get($change->service_id),
@@ -188,7 +200,8 @@ class DashboardController extends Controller
     {
         $window = 90;
         $start = now()->subDays($window);
-        // ponytail: reads every status change, like history(); bound both with daily snapshots (#24).
+        // ponytail: reads every status change: a day-level snapshot can't give recovery times. Bound to changes since the
+        // window start (plus each service's last one before it) if status_changes passes ~100k rows.
         $changes = StatusChange::query()->orderBy('created_at')->orderBy('id')->get(['service_id', 'status', 'created_at'])->groupBy('service_id');
 
         $services = Service::query()->orderBy('name')->get(['id', 'name', 'environment', 'status', 'created_at'])->map(function (Service $service) use ($changes, $start) {
@@ -303,7 +316,7 @@ class DashboardController extends Controller
      */
     public static function drift(): array
     {
-        $since = ServiceSnapshot::where('date', '>=', today()->subDays(30)->toDateString())->min('date');
+        $since = ServiceSnapshot::where('date', '>=', today()->subDays(30)->toDateString())->whereNotNull('majors_behind')->min('date');
         $then = $since === null ? collect() : ServiceSnapshot::where('date', $since)->pluck('majors_behind', 'service_id');
 
         $services = Service::with('dependencies:id,service_id,version,latest_version,eol_at')->orderBy('name')->get(['id', 'name', 'environment'])

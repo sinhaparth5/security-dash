@@ -3,6 +3,7 @@
 use App\Enums\Ecosystem;
 use App\Enums\ServiceStatus;
 use App\Models\Advisory;
+use App\Models\AdvisoryHistory;
 use App\Models\Dependency;
 use App\Models\Service;
 use App\Models\User;
@@ -112,6 +113,11 @@ test('the weekly digest summarises red services, recoveries, overdue advisories 
     $recovered = Service::factory()->create(['name' => 'auth', 'environment' => 'staging', 'status' => ServiceStatus::Green]);
     $recovered->statusChanges()->create(['status' => ServiceStatus::Green]);
     $dependency = Dependency::factory()->for($red)->vulnerable()->create(['pull_request_state' => 'open']);
+    $row = fn (string $osvId, ?string $severity, array $dates) => AdvisoryHistory::create(['service_id' => $red->id, 'ecosystem' => 'npm', 'package' => $osvId, 'osv_id' => $osvId, 'severity' => $severity, ...$dates]);
+    $row('GHSA-new-high', 'HIGH', ['first_seen_at' => now()->subDays(2)]);
+    $row('GHSA-new-crit', 'critical', ['first_seen_at' => now()->subDay()]);
+    $row('GHSA-old-fixed', 'LOW', ['first_seen_at' => now()->subMonth(), 'resolved_at' => now()->subDays(3)]);
+    $row('GHSA-old-open', 'LOW', ['first_seen_at' => now()->subMonth()]);
     Service::factory()->create(['name' => 'quiet', 'environment' => 'staging', 'watch_repository' => false, 'last_ping_at' => now()->subDays(2)]);
     Advisory::factory()->for($dependency)->create(['severity' => 'CRITICAL', 'first_seen_at' => now()->subDays(3)]);
 
@@ -121,6 +127,7 @@ test('the weekly digest summarises red services, recoveries, overdue advisories 
         ->toContain('1 service needs a security patch right now.')
         ->toContain('Turned Red this week: billing (production).')
         ->toContain('Back to Green: auth (staging).')
+        ->toContain('This week: +2 new (1 critical, 1 high), 1 fixed.')
         ->toContain('billing (production): 1 overdue advisory.')
         ->toContain('Fix first: ')
         ->toContain('Blind spot: quiet (staging) last reported 2 days ago.')
